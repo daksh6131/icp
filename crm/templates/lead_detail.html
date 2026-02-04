@@ -1,0 +1,526 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ lead.company_name }} - ICP CRM{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<div class="breadcrumb">
+    <a href="{{ url_for('leads_list') }}"><i class="fas fa-building"></i></a>
+    <i class="fas fa-chevron-right"></i>
+    <span>{{ lead.company_name }}</span>
+</div>
+
+<!-- Page Header -->
+<div class="page-header" style="margin-top: 16px;">
+    <div>
+        <h1 class="page-title">{{ lead.company_name }}</h1>
+        {% if lead.website %}
+        <a href="{{ lead.website }}" target="_blank" class="page-subtitle" style="color: var(--accent); text-decoration: none;">
+            {{ lead.website }} <i class="fas fa-external-link-alt" style="font-size: 10px; margin-left: 4px;"></i>
+        </a>
+        {% endif %}
+    </div>
+    <div class="flex items-center" style="gap: 8px;">
+        <a href="{{ url_for('lead_edit', lead_id=lead.id) }}" class="btn btn-secondary">
+            <i class="fas fa-edit"></i> Edit
+        </a>
+        <form action="{{ url_for('lead_delete', lead_id=lead.id) }}" method="POST" style="display: inline;"
+              onsubmit="return confirm('Are you sure you want to delete this lead?');">
+            <button type="submit" class="btn" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2);">
+                <i class="fas fa-trash"></i> Delete
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="grid-2" style="margin-top: 24px; align-items: start;">
+    <!-- Main Content -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        <!-- Company Header Card -->
+        <div class="card">
+            <div class="card-header">
+                <div class="flex items-center" style="gap: 16px;">
+                    <div class="avatar" style="width: 56px; height: 56px; font-size: 20px;">
+                        {{ lead.company_name[0]|upper if lead.company_name else '?' }}
+                    </div>
+                    <div>
+                        <h2 style="font-size: 20px; font-weight: 600; color: var(--text-primary);">{{ lead.company_name }}</h2>
+                        {% if lead.industry_tags %}
+                        <p style="font-size: 13px; color: var(--text-tertiary); margin-top: 4px;">{{ lead.industry_tags|truncate_text(50) }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if lead.icp_score %}
+                <div style="text-align: center; padding: 12px 20px; border-radius: 12px; background: {% if lead.icp_score >= 70 %}rgba(34, 197, 94, 0.15){% elif lead.icp_score >= 50 %}rgba(0, 74, 235, 0.15){% else %}var(--bg-hover){% endif %};">
+                    <div style="font-size: 28px; font-weight: 700; color: {% if lead.icp_score >= 70 %}#22c55e{% elif lead.icp_score >= 50 %}var(--accent){% else %}var(--text-secondary){% endif %};">
+                        {{ lead.icp_score }}
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em;">ICP Score</div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                    {% if lead.funding_amount %}
+                    <div class="detail-box">
+                        <div class="detail-label">Funding</div>
+                        <div class="detail-value">{{ lead.funding_amount }}</div>
+                        {% if lead.funding_stage %}
+                        <div style="font-size: 12px; color: var(--text-tertiary);">{{ lead.funding_stage }}</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    {% if lead.location %}
+                    <div class="detail-box">
+                        <div class="detail-label">Location</div>
+                        <div class="detail-value">{{ lead.location }}</div>
+                    </div>
+                    {% endif %}
+
+                    {% if lead.founders %}
+                    <div class="detail-box">
+                        <div class="detail-label">Founders</div>
+                        <div class="detail-value">{{ lead.founders }}</div>
+                    </div>
+                    {% endif %}
+
+                    {% if lead.investors %}
+                    <div class="detail-box">
+                        <div class="detail-label">Investors</div>
+                        <div class="detail-value">{{ lead.investors }}</div>
+                    </div>
+                    {% endif %}
+
+                    {% if lead.industry_tags %}
+                    <div class="detail-box" style="grid-column: span 2;">
+                        <div class="detail-label">Industry Tags</div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                            {% for tag in lead.industry_tags.split(',') %}
+                            <span class="badge badge-info">{{ tag.strip() }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if lead.icp_signals %}
+                    <div class="detail-box" style="grid-column: span 2;">
+                        <div class="detail-label">ICP Signals</div>
+                        <div class="detail-value">{{ lead.icp_signals }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Website Analysis -->
+        {% if lead.aesthetics_score or lead.brand_score or lead.social_score %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-globe" style="color: #06b6d4; margin-right: 8px;"></i>Website Analysis</span>
+            </div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                    <div style="text-align: center; padding: 16px; border-radius: 12px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.2);">
+                        <div style="font-size: 28px; font-weight: 700; color: {% if lead.aesthetics_score >= 7 %}#22c55e{% elif lead.aesthetics_score >= 5 %}#eab308{% else %}#ef4444{% endif %};">
+                            {{ lead.aesthetics_score or '-' }}
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Aesthetics</div>
+                    </div>
+                    <div style="text-align: center; padding: 16px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);">
+                        <div style="font-size: 28px; font-weight: 700; color: {% if lead.brand_score >= 7 %}#22c55e{% elif lead.brand_score >= 5 %}#eab308{% else %}#ef4444{% endif %};">
+                            {{ lead.brand_score or '-' }}
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Brand</div>
+                    </div>
+                    <div style="text-align: center; padding: 16px; border-radius: 12px; background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.2);">
+                        <div style="font-size: 28px; font-weight: 700; color: {% if lead.social_score >= 7 %}#22c55e{% elif lead.social_score >= 5 %}#eab308{% else %}#ef4444{% endif %};">
+                            {{ lead.social_score or '-' }}
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Social</div>
+                    </div>
+                </div>
+                {% if lead.social_links %}
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                    <div class="detail-label" style="margin-bottom: 8px;">Social Links</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        {% for link in lead.social_links.split(',') %}
+                        <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-hover); border-radius: 8px; font-size: 13px; color: var(--text-secondary);">
+                            <i class="fab fa-{{ link.strip().lower() }}"></i>{{ link.strip() }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if lead.website_last_updated %}
+                <div style="margin-top: 12px; font-size: 12px; color: var(--text-tertiary);">
+                    <i class="fas fa-clock" style="margin-right: 4px;"></i> Last updated: {{ lead.website_last_updated }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Notes & Activity -->
+        <div class="card" x-data="{ noteContent: '' }">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-history" style="color: #f59e0b; margin-right: 8px;"></i>Notes & Activity</span>
+            </div>
+
+            <!-- Add Note -->
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--bg-secondary);">
+                <div class="flex items-center" style="gap: 8px;">
+                    <input type="text" x-model="noteContent" placeholder="Add a note..."
+                           class="form-input" style="flex: 1;"
+                           @keyup.enter="if(noteContent) { addNote({{ lead.id }}, noteContent); noteContent = ''; }">
+                    <button @click="if(noteContent) { addNote({{ lead.id }}, noteContent); noteContent = ''; }" class="btn btn-primary">
+                        Add Note
+                    </button>
+                </div>
+            </div>
+
+            <!-- Activity List -->
+            <div>
+                {% for activity in activities %}
+                <div class="activity-item">
+                    <div class="activity-icon {% if activity.type == 'note' %}note{% elif activity.type == 'stage_change' %}stage{% endif %}">
+                        <i class="fas {% if activity.type == 'note' %}fa-sticky-note{% elif activity.type == 'email' %}fa-envelope{% elif activity.type == 'stage_change' %}fa-exchange-alt{% else %}fa-circle{% endif %}"></i>
+                    </div>
+                    <div class="activity-content">
+                        <div class="activity-text">{{ activity.content }}</div>
+                        <div class="activity-time">{{ activity.created_at|format_date }}</div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="empty-state" style="padding: 40px;">
+                    <i class="fas fa-comment-slash"></i>
+                    <p>No activity yet. Add a note to get started.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        {% if lead.stage_post %}
+        <!-- Post-Conversation Tracker (Active) -->
+        <div class="card tracker-card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-comments" style="color: #10b981; margin-right: 8px;"></i>Post-Conversation</span>
+                {% if lead.conversation_started_at %}
+                <span class="tracker-started">Started {{ lead.conversation_started_at|format_date }}</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {% for stage in stages_post %}
+                    <button onclick="updateStagePost({{ lead.id }}, '{{ stage.name }}')"
+                            class="stage-btn {% if lead.stage_post == stage.name %}active{% endif %}"
+                            style="--stage-color: {{ stage.color }};">
+                        {{ stage.name|format_stage }}
+                    </button>
+                    {% endfor %}
+                </div>
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                    <button onclick="moveBackToPre({{ lead.id }})" class="btn btn-ghost" style="width: 100%; font-size: 12px;">
+                        <i class="fas fa-undo"></i> Move back to Pre-Conversation
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Pre-Conversation Tracker (Active) -->
+        <div class="card tracker-card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-paper-plane" style="color: #3b82f6; margin-right: 8px;"></i>Pre-Conversation</span>
+            </div>
+            <div class="card-body">
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {% for stage in stages_pre %}
+                    <button onclick="updateStagePre({{ lead.id }}, '{{ stage.name }}')"
+                            class="stage-btn {% if lead.stage_pre == stage.name %}active{% endif %}"
+                            style="--stage-color: {{ stage.color }};">
+                        {{ stage.name|format_stage }}
+                    </button>
+                    {% endfor %}
+                </div>
+                <div class="start-convo-prompt" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                    <button onclick="startConversation({{ lead.id }})" class="btn btn-success" style="width: 100%;">
+                        <i class="fas fa-reply"></i> They Replied! Start Conversation
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Priority -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Priority</span>
+            </div>
+            <div class="card-body">
+                <div style="display: flex; gap: 8px;">
+                    <button class="priority-btn {% if lead.priority == 'high' %}active{% endif %}" style="--priority-color: #ef4444;">High</button>
+                    <button class="priority-btn {% if lead.priority == 'medium' %}active{% endif %}" style="--priority-color: #eab308;">Medium</button>
+                    <button class="priority-btn {% if lead.priority == 'low' %}active{% endif %}" style="--priority-color: #22c55e;">Low</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tasks -->
+        <div class="card" x-data="{ newTask: '' }">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-tasks" style="color: #10b981; margin-right: 8px;"></i>Tasks</span>
+            </div>
+            <div class="card-body">
+                <div class="flex items-center" style="gap: 8px; margin-bottom: 16px;">
+                    <input type="text" x-model="newTask" placeholder="Add task..." class="form-input" style="flex: 1;">
+                    <button @click="if(newTask) { fetch('/api/tasks', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title: newTask, lead_id: {{ lead.id }}}) }).then(() => location.reload()); newTask = ''; }"
+                            class="btn btn-primary btn-icon" style="width: 40px; height: 40px;">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    {% for task in tasks %}
+                    <div class="task-item">
+                        <button onclick="completeTask({{ task.id }})" class="task-check">
+                            <i class="far fa-circle"></i>
+                        </button>
+                        <span>{{ task.title }}</span>
+                    </div>
+                    {% else %}
+                    <div style="text-align: center; padding: 12px; color: var(--text-tertiary); font-size: 13px;">
+                        No pending tasks
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Source -->
+        {% if lead.source_url %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Source</span>
+            </div>
+            <div class="card-body">
+                <a href="{{ lead.source_url }}" target="_blank" style="display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-size: 13px; text-decoration: none; word-break: break-all;">
+                    <i class="fas fa-external-link-alt"></i>
+                    {{ lead.source or 'View Source' }}
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+}
+.breadcrumb a {
+    color: var(--text-tertiary);
+    text-decoration: none;
+}
+.breadcrumb a:hover {
+    color: var(--text-secondary);
+}
+.breadcrumb i.fa-chevron-right {
+    font-size: 10px;
+}
+
+.detail-box {
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+}
+.detail-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.detail-value {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin-top: 4px;
+}
+
+.stage-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: capitalize;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--stage-color) 15%, transparent);
+    color: var(--stage-color);
+    transition: all 0.15s ease;
+}
+.stage-btn:hover {
+    background: color-mix(in srgb, var(--stage-color) 25%, transparent);
+}
+.stage-btn.active {
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--stage-color);
+}
+
+.priority-btn {
+    flex: 1;
+    padding: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--priority-color) 15%, transparent);
+    color: var(--priority-color);
+    transition: all 0.15s ease;
+}
+.priority-btn:hover {
+    background: color-mix(in srgb, var(--priority-color) 25%, transparent);
+}
+.priority-btn.active {
+    background: var(--priority-color);
+    color: white;
+}
+
+.task-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 8px;
+    transition: background 0.15s ease;
+}
+.task-item:hover {
+    background: var(--bg-hover);
+}
+.task-item span {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.task-check {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.task-check:hover {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+
+/* Tracker Cards */
+.tracker-card {
+    transition: all 0.2s ease;
+}
+
+.tracker-card.tracker-inactive {
+    opacity: 0.6;
+}
+
+.tracker-card.tracker-inactive:hover {
+    opacity: 1;
+}
+
+.tracker-started {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+}
+
+.start-convo-prompt {
+    text-align: center;
+    padding: 16px;
+}
+
+.start-convo-prompt p {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+}
+
+.btn-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.btn-success:hover {
+    background: rgba(16, 185, 129, 0.25);
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function updateStagePre(leadId, stage) {
+    try {
+        await fetch(`/api/leads/${leadId}/stage/pre`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage })
+        });
+        showToast(`Moved to ${stage.replace(/_/g, ' ')}`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to update stage', 'error');
+    }
+}
+
+async function updateStagePost(leadId, stage) {
+    try {
+        await fetch(`/api/leads/${leadId}/stage/post`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage })
+        });
+        showToast(`Moved to ${stage.replace(/_/g, ' ')}`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to update stage', 'error');
+    }
+}
+
+async function startConversation(leadId) {
+    try {
+        await fetch(`/api/leads/${leadId}/start-conversation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        showToast('Conversation started!');
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to start conversation', 'error');
+    }
+}
+
+async function moveBackToPre(leadId) {
+    try {
+        await fetch(`/api/leads/${leadId}/move-to-pre`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        showToast('Moved back to Pre-Conversation');
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to move lead', 'error');
+    }
+}
+</script>
+{% endblock %}

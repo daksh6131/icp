@@ -1,0 +1,18 @@
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+google-api-python-client>=2.70.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=0.8.0
+python-dotenv>=0.21.0
+schedule>=1.1.0
+feedparser>=6.0.0
+lxml>=4.9.0
+
+# Website Analysis
+playwright>=1.40.0
+anthropic>=0.18.0
+cssutils>=2.9.0
+
+# CRM Web App
+flask>=3.0.0
+gunicorn>=21.0.0

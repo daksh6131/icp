@@ -1,0 +1,332 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if lead %}Edit {{ lead.company_name }}{% else %}New Lead{% endif %} - ICP CRM{% endblock %}
+
+{% block content %}
+<div style="max-width: 700px; margin: 0 auto;">
+    <!-- Breadcrumb -->
+    <div class="breadcrumb">
+        <a href="{{ url_for('leads_list') }}"><i class="fas fa-building"></i></a>
+        <i class="fas fa-chevron-right"></i>
+        {% if lead %}
+        <a href="{{ url_for('lead_detail', lead_id=lead.id) }}">{{ lead.company_name }}</a>
+        <i class="fas fa-chevron-right"></i>
+        <span>Edit</span>
+        {% else %}
+        <span>New Lead</span>
+        {% endif %}
+    </div>
+
+    <!-- Page Header -->
+    <h1 class="page-title" style="margin-top: 16px;">
+        {% if lead %}Edit {{ lead.company_name }}{% else %}Add New Lead{% endif %}
+    </h1>
+
+    <!-- Form -->
+    <form method="POST" class="card" style="margin-top: 24px;">
+        <div class="card-body" style="padding: 24px;">
+            <!-- Company Info Section -->
+            <div class="form-section">
+                <div class="form-grid">
+                    <div class="form-group full-width">
+                        <label for="company_name" class="form-label">Company Name *</label>
+                        <input type="text" name="company_name" id="company_name" required
+                               value="{{ lead.company_name if lead else '' }}"
+                               class="form-input">
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label for="website" class="form-label">Website</label>
+                        <input type="url" name="website" id="website"
+                               value="{{ lead.website if lead else '' }}"
+                               placeholder="https://example.com"
+                               class="form-input">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="funding_amount" class="form-label">Funding Amount</label>
+                        <input type="text" name="funding_amount" id="funding_amount"
+                               value="{{ lead.funding_amount if lead else '' }}"
+                               placeholder="$10M"
+                               class="form-input">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="funding_stage" class="form-label">Funding Stage</label>
+                        <select name="funding_stage" id="funding_stage" class="form-input">
+                            <option value="">Select stage...</option>
+                            {% for stage in ['Pre-Seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Series D+', 'YC'] %}
+                            <option value="{{ stage }}" {% if lead and lead.funding_stage == stage %}selected{% endif %}>{{ stage }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="location" class="form-label">Location</label>
+                        <input type="text" name="location" id="location"
+                               value="{{ lead.location if lead else '' }}"
+                               placeholder="San Francisco, CA"
+                               class="form-input">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="industry_tags" class="form-label">Industry Tags</label>
+                        <input type="text" name="industry_tags" id="industry_tags"
+                               value="{{ lead.industry_tags if lead else '' }}"
+                               placeholder="AI, Machine Learning, B2B"
+                               class="form-input">
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label for="founders" class="form-label">Founders</label>
+                        <input type="text" name="founders" id="founders"
+                               value="{{ lead.founders if lead else '' }}"
+                               placeholder="John Doe, Jane Smith"
+                               class="form-input">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pipeline Settings Section -->
+            <div class="form-section" style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
+                <h3 style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px;">Pipeline Settings</h3>
+
+                <!-- Priority Buttons -->
+                <div class="form-group full-width" style="margin-bottom: 20px;">
+                    <label class="form-label">Priority</label>
+                    <input type="hidden" name="priority" id="priority" value="{{ lead.priority if lead else 'medium' }}">
+                    <div class="priority-buttons">
+                        <button type="button" class="priority-btn priority-high {% if lead and lead.priority == 'high' %}active{% endif %}" onclick="setPriority('high')">
+                            <span class="priority-dot"></span> High
+                        </button>
+                        <button type="button" class="priority-btn priority-medium {% if not lead or lead.priority == 'medium' %}active{% endif %}" onclick="setPriority('medium')">
+                            <span class="priority-dot"></span> Medium
+                        </button>
+                        <button type="button" class="priority-btn priority-low {% if lead and lead.priority == 'low' %}active{% endif %}" onclick="setPriority('low')">
+                            <span class="priority-dot"></span> Low
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pre-Conversation Stage -->
+                <div class="form-group full-width" style="margin-bottom: 20px;">
+                    <label class="form-label">Pre-Conversation Stage</label>
+                    <input type="hidden" name="stage_pre" id="stage_pre" value="{{ lead.stage_pre if lead else 'research' }}">
+                    <div class="stage-buttons">
+                        {% for stage in stages_pre %}
+                        <button type="button" class="stage-btn {% if (lead and lead.stage_pre == stage.name) or (not lead and stage.name == 'research') %}active{% endif %}"
+                                style="--stage-color: {{ stage.color }};"
+                                onclick="setStagePre('{{ stage.name }}')">
+                            {{ stage.name|replace('_', ' ')|title }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Post-Conversation Stage -->
+                <div class="form-group full-width">
+                    <label class="form-label">Post-Conversation Stage <span style="color: var(--text-tertiary); font-weight: 400;">(optional)</span></label>
+                    <input type="hidden" name="stage_post" id="stage_post" value="{{ lead.stage_post if lead else '' }}">
+                    <div class="stage-buttons">
+                        <button type="button" class="stage-btn {% if not lead or not lead.stage_post %}active{% endif %}"
+                                style="--stage-color: #6b7280;"
+                                onclick="setStagePost('')">
+                            Not Started
+                        </button>
+                        {% for stage in stages_post %}
+                        <button type="button" class="stage-btn {% if lead and lead.stage_post == stage.name %}active{% endif %}"
+                                style="--stage-color: {{ stage.color }};"
+                                onclick="setStagePost('{{ stage.name }}')">
+                            {{ stage.name|replace('_', ' ')|title }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="form-actions">
+            <a href="{% if lead %}{{ url_for('lead_detail', lead_id=lead.id) }}{% else %}{{ url_for('leads_list') }}{% endif %}" class="btn btn-secondary">
+                Cancel
+            </a>
+            <button type="submit" class="btn btn-primary">
+                {% if lead %}Save Changes{% else %}Create Lead{% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+}
+.breadcrumb a {
+    color: var(--text-tertiary);
+    text-decoration: none;
+}
+.breadcrumb a:hover {
+    color: var(--text-secondary);
+}
+.breadcrumb i.fa-chevron-right {
+    font-size: 10px;
+}
+
+.form-section {
+    display: block;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group.full-width {
+    grid-column: span 2;
+}
+
+.form-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+    .form-group.full-width {
+        grid-column: span 1;
+    }
+}
+
+/* Priority Buttons */
+.priority-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.priority-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.priority-btn:hover {
+    background: var(--bg-hover);
+}
+
+.priority-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.priority-btn.priority-high .priority-dot { background: #ef4444; }
+.priority-btn.priority-medium .priority-dot { background: #f59e0b; }
+.priority-btn.priority-low .priority-dot { background: #22c55e; }
+
+.priority-btn.priority-high.active {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #f87171;
+}
+
+.priority-btn.priority-medium.active {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+}
+
+.priority-btn.priority-low.active {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #4ade80;
+}
+
+/* Stage Buttons */
+.stage-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.stage-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.stage-btn:hover {
+    border-color: var(--stage-color, var(--accent));
+    color: var(--stage-color, var(--accent));
+}
+
+.stage-btn.active {
+    background: color-mix(in srgb, var(--stage-color, var(--accent)) 15%, transparent);
+    border-color: var(--stage-color, var(--accent));
+    color: var(--stage-color, var(--accent));
+}
+</style>
+
+<script>
+function setPriority(priority) {
+    document.getElementById('priority').value = priority;
+    document.querySelectorAll('.priority-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`.priority-btn.priority-${priority}`).classList.add('active');
+}
+
+function setStagePre(stage) {
+    document.getElementById('stage_pre').value = stage;
+    const container = document.getElementById('stage_pre').parentElement;
+    container.querySelectorAll('.stage-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+}
+
+function setStagePost(stage) {
+    document.getElementById('stage_post').value = stage;
+    const container = document.getElementById('stage_post').parentElement;
+    container.querySelectorAll('.stage-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+}
+</script>
+{% endblock %}

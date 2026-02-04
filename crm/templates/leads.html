@@ -1,0 +1,3500 @@
+{% extends 'base.html' %}
+
+{% block title %}Leads - ICP CRM{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Leads</h1>
+    <p class="page-subtitle">{{ "{:,}".format(stats.total) }} total leads</p>
+</div>
+
+<!-- Tracker Tabs -->
+{% set pre_count = stats.by_stage_pre.values()|sum if stats.by_stage_pre else 0 %}
+{% set post_count = stats.by_stage_post.values()|sum if stats.by_stage_post else 0 %}
+<div class="tracker-tabs" id="trackerTabs">
+    <button type="button" class="tracker-tab {% if current_tracker == 'pre' %}active{% endif %}" data-tracker="pre" onclick="switchTracker('pre')">
+        <i class="fas fa-paper-plane"></i>
+        Pre-Conversation
+        <span class="tracker-count" id="preCount">{{ "{:,}".format(pre_count) }}</span>
+    </button>
+    <button type="button" class="tracker-tab {% if current_tracker == 'post' %}active{% endif %}" data-tracker="post" onclick="switchTracker('post')">
+        <i class="fas fa-comments"></i>
+        Post-Conversation
+        <span class="tracker-count" id="postCount">{{ "{:,}".format(post_count) }}</span>
+    </button>
+</div>
+
+<!-- Stage Filters -->
+{% set stage_counts = stats.by_stage_pre if current_tracker == 'pre' else stats.by_stage_post %}
+<div class="filters" id="stageFilters">
+    <button type="button" class="filter-btn {% if current_stage == 'all' %}active{% endif %}" data-stage="all" onclick="switchStage('all')">
+        All
+        <span class="filter-count" id="allCount">{{ pre_count if current_tracker == 'pre' else post_count }}</span>
+    </button>
+    {% for stage in stages %}
+    {% set count = stage_counts.get(stage.name, 0) if stage_counts else 0 %}
+    <button type="button" class="filter-btn {% if current_stage == stage.name %}active{% endif %}" data-stage="{{ stage.name }}" style="--filter-color: {{ stage.color }};" onclick="switchStage('{{ stage.name }}')">
+        {{ stage.name|format_stage }}
+        <span class="filter-count">{{ count }}</span>
+    </button>
+    {% endfor %}
+
+    <!-- Source Filter Dropdown -->
+    <div class="source-filter-wrapper">
+        <select id="sourceFilter" class="source-filter-select" onchange="switchSource(this.value)">
+            <option value="all" {% if current_source == 'all' %}selected{% endif %}>All Sources</option>
+            {% for src in sources %}
+            <option value="{{ src.name }}" {% if current_source == src.name %}selected{% endif %}>
+                {{ src.name }} ({{ src.count }})
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+<!-- Bulk Action Bar (hidden by default) -->
+<div id="bulkActionBar" class="bulk-action-bar" style="display: none;">
+    <div class="bulk-action-left">
+        <button class="btn btn-ghost btn-sm" onclick="clearSelection()">
+            <i class="fas fa-times"></i>
+        </button>
+        <span class="bulk-count"><span id="selectedCount">0</span> selected</span>
+    </div>
+    <div class="bulk-action-right">
+        <select id="bulkPrioritySelect" class="bulk-select">
+            <option value="">Set priority...</option>
+            <option value="high">🔴 High</option>
+            <option value="medium">🟡 Medium</option>
+            <option value="low">🟢 Low</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="bulkUpdatePriority()">
+            <i class="fas fa-flag"></i> Set
+        </button>
+        <select id="bulkStageSelect" class="bulk-select">
+            <option value="">Move to stage...</option>
+            {% for stage in stages %}
+            <option value="{{ stage.name }}">{{ stage.name|format_stage }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="bulkUpdateStage()">
+            <i class="fas fa-arrows-alt"></i> Move
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="bulkDelete()">
+            <i class="fas fa-trash"></i> Delete
+        </button>
+    </div>
+</div>
+
+<!-- Table -->
+<div class="table-wrapper">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th class="th-drag"></th>
+                <th class="th-checkbox">
+                    <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
+                </th>
+                <th class="th-company sortable" data-sort="company_name" onclick="sortBy('company_name')">
+                    Company <i class="fas fa-sort sort-icon"></i>
+                </th>
+                <th class="th-contact sortable" data-sort="founders" onclick="sortBy('founders')">
+                    Contact <i class="fas fa-sort sort-icon"></i>
+                </th>
+                <th class="th-score sortable" data-sort="icp_score" onclick="sortBy('icp_score')">
+                    Score <i class="fas fa-sort sort-icon"></i>
+                </th>
+                <th class="th-source sortable" data-sort="source" onclick="sortBy('source')">
+                    Source <i class="fas fa-sort sort-icon"></i>
+                </th>
+                <th class="th-priority sortable" data-sort="priority" onclick="sortBy('priority')">
+                    Priority <i class="fas fa-sort sort-icon"></i>
+                </th>
+                <th class="th-stage">Stage</th>
+                <th class="th-actions"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lead in leads %}
+            {% set current_stage_name = lead.stage_pre if current_tracker == 'pre' else lead.stage_post %}
+            {% set stage_colors = {
+                'research': '#6B7280',
+                'queued': '#3B82F6',
+                'dm_sent': '#8B5CF6',
+                'follow_up_1': '#F59E0B',
+                'follow_up_2': '#EC4899',
+                'no_response': '#EF4444',
+                'replied': '#10B981',
+                'discovery_booked': '#3B82F6',
+                'discovery_done': '#8B5CF6',
+                'audit_scheduled': '#F59E0B',
+                'proposal_sent': '#EC4899',
+                'negotiation': '#F97316',
+                'paid': '#22C55E',
+                'rejected': '#EF4444'
+            } %}
+            {% set stage_color = stage_colors.get(current_stage_name, '#6B7280') %}
+            <tr class="data-row {% if loop.index is odd %}row-alt{% endif %}" data-lead-id="{{ lead.id }}" data-company-name="{{ lead.company_name }}" data-stage-pre="{{ lead.stage_pre }}" data-stage-post="{{ lead.stage_post or '' }}" onclick="openLeadPanel({{ lead.id }})">
+                <td class="td-drag" onclick="event.stopPropagation();">
+                    <div class="drag-handle" draggable="true"
+                         ondragstart="handleRowDragStart(event, {{ lead.id }}, '{{ lead.company_name|replace("'", "\\'") }}', '{{ lead.stage_pre }}', '{{ lead.stage_post or '' }}')"
+                         ondragend="handleRowDragEnd(event)">
+                        <i class="fas fa-grip-vertical"></i>
+                    </div>
+                </td>
+                <td class="td-checkbox" onclick="event.stopPropagation();">
+                    <input type="checkbox" class="lead-checkbox" value="{{ lead.id }}" onchange="updateSelection()">
+                </td>
+                <td class="td-company">
+                    <div class="company-cell">
+                        <div class="avatar">{{ lead.company_name[0]|upper if lead.company_name else '?' }}</div>
+                        <div class="company-info">
+                            <span class="company-name">{{ lead.company_name|truncate_text(25) }}</span>
+                            {% if lead.industry_tags %}
+                            <span class="company-meta">{{ lead.industry_tags|truncate_text(30) }}</span>
+                            {% elif lead.website %}
+                            <span class="company-meta">{{ lead.website|replace('https://', '')|replace('http://', '')|replace('www.', '')|truncate_text(25) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </td>
+                <td class="td-contact">
+                    {% if lead.founders or lead.attendee_email %}
+                    <div class="contact-info">
+                        <span class="contact-name">{{ lead.founders|truncate_text(18) if lead.founders else '-' }}</span>
+                        {% if lead.attendee_email %}
+                        <span class="contact-email">{{ lead.attendee_email|truncate_text(22) }}</span>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td class="td-score">
+                    {% if lead.icp_score %}
+                    <span class="score-badge {% if lead.icp_score >= 80 %}score-high{% elif lead.icp_score >= 50 %}score-medium{% else %}score-low{% endif %}">
+                        {{ lead.icp_score }}
+                    </span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td class="td-source">
+                    {% if lead.source == 'calcom' %}
+                    <span class="badge badge-purple"><i class="fas fa-calendar-check"></i> Cal.com</span>
+                    {% elif lead.source == 'google_sheets' %}
+                    <span class="badge badge-green"><i class="fas fa-table"></i> Sheets</span>
+                    {% elif lead.source %}
+                    <span class="badge">{{ lead.source|truncate_text(12) }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td class="td-priority" onclick="event.stopPropagation();">
+                    <select onchange="updatePriority({{ lead.id }}, this.value)" class="select-sm priority-{{ lead.priority or 'medium' }}">
+                        <option value="high" {% if lead.priority == 'high' %}selected{% endif %}>🔴 High</option>
+                        <option value="medium" {% if lead.priority == 'medium' or not lead.priority %}selected{% endif %}>🟡 Medium</option>
+                        <option value="low" {% if lead.priority == 'low' %}selected{% endif %}>🟢 Low</option>
+                    </select>
+                </td>
+                <td class="td-stage" onclick="event.stopPropagation();">
+                    <select onchange="{% if current_tracker == 'pre' %}updateStagePre{% else %}updateStagePost{% endif %}({{ lead.id }}, this.value);" class="select-sm stage-select" style="--stage-color: {{ stage_color }};">
+                        {% for stage in stages %}
+                        <option value="{{ stage.name }}" {% if current_stage_name == stage.name %}selected{% endif %}>{{ stage.name|format_stage }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td class="td-actions">
+                    <div class="actions-group">
+                        {% if lead.website %}
+                        <a href="{{ lead.website }}" target="_blank" class="icon-btn" onclick="event.stopPropagation();" title="Visit website">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                        {% endif %}
+                        <button class="icon-btn" onclick="event.stopPropagation(); openLeadPanel({{ lead.id }});" title="View details">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" class="empty-cell">
+                    <div class="empty-state">
+                        <i class="fas fa-inbox"></i>
+                        <p>No leads found</p>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if leads|length >= 50 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ url_for('leads_list', stage=current_stage, search=search, page=page-1) }}" class="pagination-btn">
+        <i class="fas fa-chevron-left"></i>
+    </a>
+    {% endif %}
+    <span class="pagination-current">Page {{ page }}</span>
+    <a href="{{ url_for('leads_list', stage=current_stage, search=search, page=page+1) }}" class="pagination-btn">
+        <i class="fas fa-chevron-right"></i>
+    </a>
+</div>
+{% endif %}
+
+<!-- Lead Detail Side Panel -->
+<div id="leadPanel" class="lead-panel" onclick="if(event.target === this) closeLeadPanel()">
+    <div class="lead-panel-content">
+        <div class="lead-panel-header">
+            <h2 id="panelCompanyName">Loading...</h2>
+            <button class="btn btn-ghost btn-icon" onclick="closeLeadPanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="panelBody" class="lead-panel-body">
+            <div class="panel-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Loading lead details...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stage Drag Overlay -->
+<div id="stageDragOverlay" class="stage-drag-overlay">
+    <div class="stage-drag-header">
+        <div class="drag-lead-info">
+            <i class="fas fa-arrows-alt"></i>
+            <span>Moving: <strong id="dragLeadName">Company</strong></span>
+        </div>
+        <button class="btn btn-ghost" onclick="cancelStageDrag()">
+            <i class="fas fa-times"></i> Cancel
+        </button>
+    </div>
+    <div class="stage-drag-content">
+        <div class="stage-drag-grid">
+            <!-- Pre-Conversation Section -->
+            <div class="stage-section">
+                <h3 class="stage-section-title">
+                    <i class="fas fa-paper-plane"></i> Pre-Conversation
+                </h3>
+                <div class="stage-targets" id="preStageTargets">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+            <!-- Post-Conversation Section -->
+            <div class="stage-section">
+                <h3 class="stage-section-title">
+                    <i class="fas fa-comments"></i> Post-Conversation
+                </h3>
+                <div class="stage-targets" id="postStageTargets">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+        <p class="drag-hint">Drop on a stage to move the lead, or press Escape to cancel</p>
+    </div>
+</div>
+
+<!-- DM Generation Modal -->
+<div id="dmModal" class="dm-modal">
+    <div class="dm-modal-content">
+        <div class="dm-modal-header">
+            <h3><i class="fas fa-magic"></i> Generated DM</h3>
+            <button type="button" onclick="closeDMModal()" class="btn btn-ghost btn-icon">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="dm-modal-body">
+            <textarea id="generatedDM" class="dm-textarea" placeholder="Your personalized DM will appear here..."></textarea>
+            <div class="dm-meta">
+                <span class="dm-char-count"><span id="dmCharCount">0</span> characters</span>
+                <div class="dm-context" id="dmContext"></div>
+            </div>
+        </div>
+        <div class="dm-modal-actions">
+            <button type="button" onclick="regenerateDM()" class="btn btn-secondary">
+                <i class="fas fa-redo"></i> Regenerate
+            </button>
+            <button type="button" onclick="copyDM()" class="btn btn-primary">
+                <i class="fas fa-copy"></i> Copy to Clipboard
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Tracker Tabs */
+.tracker-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.tracker-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: all 0.15s ease;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.tracker-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.tracker-tab.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.tracker-tab i {
+    font-size: 13px;
+}
+
+.tracker-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 20px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 10px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.tracker-tab.active .tracker-count {
+    background: var(--accent);
+    color: white;
+}
+
+/* Stage Filter Buttons */
+#stageFilters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+#stageFilters .filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+
+#stageFilters .filter-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--filter-color, #3f3f46);
+}
+
+#stageFilters .filter-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+#stageFilters .filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 16px;
+    padding: 0 5px;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 8px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+#stageFilters .filter-btn.active .filter-count {
+    background: var(--accent);
+    color: white;
+}
+
+/* Source Filter Dropdown */
+.source-filter-wrapper {
+    margin-left: auto;
+}
+
+.source-filter-select {
+    padding: 8px 32px 8px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: inherit;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    min-width: 140px;
+}
+
+.source-filter-select:hover {
+    border-color: var(--accent);
+}
+
+.source-filter-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* ========== SHADCN-STYLE DATA TABLE ========== */
+.table-wrapper {
+    width: 100%;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+}
+
+.data-table {
+    width: 100%;
+    caption-side: bottom;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+/* Table Header */
+.data-table thead {
+    border-bottom: 1px solid var(--border);
+}
+
+.data-table thead tr {
+    background: transparent;
+}
+
+.data-table th {
+    height: 48px;
+    padding: 0 16px;
+    text-align: left;
+    vertical-align: middle;
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.data-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+}
+
+.data-table th.sortable:hover {
+    color: var(--text-primary);
+}
+
+.data-table th.sortable .sort-icon {
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.4;
+    transition: opacity 0.15s ease;
+}
+
+.data-table th.sortable:hover .sort-icon {
+    opacity: 0.7;
+}
+
+.data-table th.sortable.sort-asc .sort-icon,
+.data-table th.sortable.sort-desc .sort-icon {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.data-table th.sortable.sort-asc .sort-icon::before {
+    content: "\f0de";
+}
+
+.data-table th.sortable.sort-desc .sort-icon::before {
+    content: "\f0dd";
+}
+
+.data-table th.th-drag { width: 32px; padding: 0; }
+.data-table th.th-checkbox { width: 40px; padding: 0 12px; text-align: center; }
+.data-table th.th-company { min-width: 200px; }
+.data-table th.th-contact { min-width: 160px; }
+.data-table th.th-score { min-width: 70px; text-align: center; }
+.data-table th.th-source { min-width: 100px; }
+.data-table th.th-priority { min-width: 110px; }
+.data-table th.th-stage { min-width: 130px; }
+.data-table th.th-actions { width: 80px; text-align: right; }
+
+/* Score Badge */
+.td-score { text-align: center; }
+
+.score-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 24px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 12px;
+    color: white;
+}
+
+.score-badge.score-high {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.score-badge.score-medium {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
+.score-badge.score-low {
+    background: linear-gradient(135deg, #6b7280, #4b5563);
+}
+
+/* Drag Handle */
+.td-drag {
+    width: 32px;
+    padding: 0 !important;
+}
+
+.drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 100%;
+    min-height: 48px;
+    color: var(--text-tertiary);
+    cursor: grab;
+    transition: all 0.15s ease;
+}
+
+.drag-handle:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+    color: var(--accent);
+}
+
+.drag-handle i {
+    font-size: 12px;
+}
+
+.data-row.dragging {
+    opacity: 0.4;
+    background: var(--accent-soft) !important;
+    transform: scale(0.98);
+    transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+/* Table Body */
+.data-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.15s ease;
+}
+
+.data-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.data-table tbody tr.data-row {
+    cursor: pointer;
+}
+
+.data-table tbody tr.data-row:hover {
+    background-color: var(--bg-hover);
+}
+
+.data-table tbody tr.data-row.selected {
+    background-color: var(--accent-soft);
+}
+
+.data-table td {
+    padding: 12px 16px;
+    vertical-align: middle;
+}
+
+.data-table td.td-checkbox {
+    width: 40px;
+    padding: 12px;
+    text-align: center;
+}
+
+.data-table td.td-actions {
+    text-align: right;
+}
+
+/* Checkbox styling */
+.data-table input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    accent-color: var(--accent);
+}
+
+/* Company Cell */
+.company-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+}
+
+.company-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.company-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.company-meta {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+/* Contact Cell */
+.contact-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.contact-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.contact-email {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.text-muted {
+    color: var(--text-tertiary);
+}
+
+/* Badge */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 9999px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.badge i { font-size: 10px; }
+
+.badge-purple {
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+}
+
+.badge-green {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+}
+
+/* Small Select */
+.select-sm {
+    height: 32px;
+    padding: 0 28px 0 10px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background-color: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.select-sm:hover {
+    border-color: var(--text-tertiary);
+}
+
+.select-sm:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* Priority Select Colors */
+.select-sm.priority-high {
+    background-color: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.25);
+    color: #f87171;
+}
+
+.select-sm.priority-medium {
+    background-color: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.25);
+    color: #fbbf24;
+}
+
+.select-sm.priority-low {
+    background-color: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.25);
+    color: #4ade80;
+}
+
+/* Stage Select */
+.select-sm.stage-select {
+    border-color: color-mix(in srgb, var(--stage-color, var(--border)) 40%, transparent);
+    background-color: color-mix(in srgb, var(--stage-color, var(--border)) 8%, transparent);
+    color: var(--stage-color, var(--text-secondary));
+    text-transform: capitalize;
+}
+
+.select-sm.stage-select:hover {
+    border-color: var(--stage-color, var(--accent));
+}
+
+.select-sm.stage-select:focus {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--stage-color, var(--accent)) 20%, transparent);
+}
+
+/* Icon Button */
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+}
+
+.icon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.icon-btn i {
+    font-size: 13px;
+}
+
+.actions-group {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+/* Empty State */
+.empty-cell {
+    padding: 48px 16px;
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-tertiary);
+}
+
+.empty-state i {
+    font-size: 32px;
+    opacity: 0.5;
+}
+
+.empty-state p {
+    font-size: 14px;
+    margin: 0;
+}
+
+/* Bulk Action Bar */
+.bulk-action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--accent);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.bulk-action-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bulk-action-left .btn-ghost {
+    color: white;
+    padding: 4px 8px;
+}
+
+.bulk-action-left .btn-ghost:hover {
+    background: rgba(255,255,255,0.15);
+}
+
+.bulk-count {
+    font-size: 13px;
+    font-weight: 500;
+    color: white;
+}
+
+.bulk-action-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bulk-select {
+    appearance: none;
+    padding: 6px 28px 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.1);
+    color: white;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+}
+
+.bulk-select:focus {
+    outline: none;
+    border-color: white;
+}
+
+.bulk-select option {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.bulk-action-right .btn {
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+.bulk-action-right .btn-secondary {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
+
+.bulk-action-right .btn-secondary:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+.bulk-action-right .btn-danger {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.bulk-action-right .btn-danger:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+/* Side Panel Styles */
+.lead-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.lead-panel.open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.lead-panel-content {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 520px;
+    max-width: 100%;
+    background: var(--bg-primary);
+    border-left: 1px solid var(--border);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.lead-panel.open .lead-panel-content {
+    transform: translateX(0);
+}
+
+.lead-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+.lead-panel-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.lead-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+.panel-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 48px;
+    color: var(--text-tertiary);
+}
+
+.panel-loading i {
+    font-size: 24px;
+}
+
+/* Panel Sections */
+.panel-section {
+    margin-bottom: 24px;
+}
+
+.panel-section:last-child {
+    margin-bottom: 0;
+}
+
+.panel-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+}
+
+.panel-company-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.panel-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+}
+
+.panel-company-info {
+    flex: 1;
+}
+
+.panel-company-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.panel-company-tags {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.panel-company-link {
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.panel-company-link:hover {
+    text-decoration: underline;
+}
+
+.panel-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.panel-stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.panel-stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 4px;
+}
+
+.panel-stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.panel-stat-value.score-high { color: var(--success); }
+.panel-stat-value.score-medium { color: var(--accent); }
+
+.panel-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.panel-detail-row:last-child {
+    border-bottom: none;
+}
+
+.panel-detail-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.panel-detail-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: right;
+    max-width: 60%;
+}
+
+.panel-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+}
+
+.panel-actions .btn {
+    flex: 1;
+}
+
+.panel-notes {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.panel-note {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.panel-note:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.panel-note:first-child {
+    padding-top: 0;
+}
+
+.panel-note-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.panel-note-meta {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.panel-empty {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-tertiary);
+    font-size: 13px;
+}
+
+/* Score badges in panel */
+.panel-score-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+}
+
+.panel-score-badge.high {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.panel-score-badge.medium {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.panel-score-badge.low {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+/* Panel Editable Inputs */
+.panel-edit-input {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    transition: all 0.15s ease;
+}
+
+.panel-edit-input:hover {
+    background: var(--bg-hover);
+}
+
+.panel-edit-input:focus {
+    outline: none;
+    background: var(--bg-card);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.panel-edit-input::placeholder {
+    color: var(--text-tertiary);
+}
+
+/* LinkedIn input wrapper with search button */
+.linkedin-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.linkedin-input-wrapper .panel-edit-input {
+    flex: 1;
+}
+
+.linkedin-search-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: #0A66C2;
+    color: white;
+    text-decoration: none;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.linkedin-search-btn:hover {
+    background: #004182;
+    transform: scale(1.05);
+}
+
+.linkedin-search-btn i {
+    font-size: 16px;
+}
+
+.panel-edit-title {
+    font-size: 18px;
+    font-weight: 600;
+    padding: 6px 10px;
+    margin: -6px -10px;
+}
+
+.panel-edit-meta {
+    font-size: 13px;
+    padding: 4px 10px;
+    margin: 0 -10px;
+    color: var(--text-secondary);
+}
+
+.panel-website-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.panel-link-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.panel-link-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+/* Panel Form Grid */
+.panel-form-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.panel-form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.panel-form-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-tertiary);
+    padding-left: 2px;
+}
+
+.panel-edit-select {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.panel-edit-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.panel-edit-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.panel-edit-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.panel-edit-textarea::placeholder {
+    color: var(--text-tertiary);
+}
+
+/* Priority Buttons */
+.panel-priority-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.priority-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.priority-btn:hover {
+    background: var(--bg-hover);
+}
+
+.priority-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.priority-btn.priority-high .priority-dot { background: #ef4444; }
+.priority-btn.priority-medium .priority-dot { background: #f59e0b; }
+.priority-btn.priority-low .priority-dot { background: #22c55e; }
+
+.priority-btn.priority-high.active {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #f87171;
+}
+
+.priority-btn.priority-medium.active {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+}
+
+.priority-btn.priority-low.active {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #4ade80;
+}
+
+/* Stage Buttons */
+.panel-stage-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.stage-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.stage-btn:hover:not(:disabled) {
+    border-color: var(--stage-color, var(--accent));
+    color: var(--stage-color, var(--accent));
+}
+
+.stage-btn.active {
+    background: color-mix(in srgb, var(--stage-color, var(--accent)) 15%, transparent);
+    border-color: var(--stage-color, var(--accent));
+    color: var(--stage-color, var(--accent));
+}
+
+.stage-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Potential Value Buttons */
+.panel-value-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.value-btn {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.value-btn:hover {
+    border-color: #22c55e;
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.value-btn.active {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: #22c55e;
+    color: #22c55e;
+}
+
+/* DM Generation */
+.dm-generate-btn {
+    margin-bottom: 8px;
+}
+
+.dm-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-align: center;
+    margin: 0;
+}
+
+/* DM Modal */
+.dm-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+
+.dm-modal.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.dm-modal-content {
+    width: 90%;
+    max-width: 520px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    transform: scale(0.95) translateY(10px);
+    transition: transform 0.2s ease;
+}
+
+.dm-modal.active .dm-modal-content {
+    transform: scale(1) translateY(0);
+}
+
+.dm-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.dm-modal-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dm-modal-header h3 i {
+    color: var(--accent);
+}
+
+.dm-modal-body {
+    padding: 20px;
+}
+
+.dm-textarea {
+    width: 100%;
+    min-height: 150px;
+    padding: 14px;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.6;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    resize: vertical;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dm-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.dm-textarea::placeholder {
+    color: var(--text-tertiary);
+}
+
+.dm-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.dm-char-count {
+    font-weight: 500;
+}
+
+.dm-context {
+    display: flex;
+    gap: 8px;
+}
+
+.dm-context-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    border-radius: 4px;
+    background: var(--bg-hover);
+}
+
+.dm-context-tag.success {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+}
+
+.dm-context-tag.warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+
+.dm-modal-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    justify-content: flex-end;
+}
+
+/* ICP Score Display */
+.panel-score-display {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+}
+
+.panel-score-display .score-number {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.panel-score-display .score-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.panel-score-display.high {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.panel-score-display.high .score-number {
+    color: #10b981;
+}
+
+.panel-score-display.medium {
+    border-color: rgba(59, 130, 246, 0.3);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.panel-score-display.medium .score-number {
+    color: #3b82f6;
+}
+
+.panel-score-display.low .score-number {
+    color: var(--text-tertiary);
+}
+
+/* Accent button for unsaved changes */
+.btn-accent {
+    background: var(--accent) !important;
+    color: white !important;
+    animation: pulse-accent 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-accent {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+}
+
+/* Website scores */
+.panel-website-scores {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.panel-score-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.panel-score-tag i {
+    font-size: 10px;
+}
+
+/* Responsive Table */
+@media (max-width: 1024px) {
+    .data-table .td-contact,
+    .data-table .th-contact {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .bulk-action-bar {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .bulk-action-right {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .tracker-tabs {
+        flex-wrap: wrap;
+    }
+
+    .filters {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 8px;
+    }
+
+    .filter-btn {
+        flex-shrink: 0;
+    }
+
+    .data-table .td-source,
+    .data-table .th-source {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+    }
+
+    .avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 11px;
+    }
+
+    .company-cell {
+        gap: 8px;
+    }
+
+    .company-name {
+        font-size: 13px;
+    }
+
+    .select-sm {
+        height: 28px;
+        font-size: 12px;
+        padding: 0 24px 0 8px;
+    }
+
+    .data-table .td-priority,
+    .data-table .th-priority {
+        display: none;
+    }
+}
+
+/* ========== DRAG GHOST ========== */
+.drag-ghost {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--bg-card, #1f1f23);
+    border: 1px solid var(--accent, #3b82f6);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(59, 130, 246, 0.3);
+    z-index: 9999;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.drag-ghost-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent, #3b82f6), #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+}
+
+.drag-ghost-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #ffffff);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ========== STAGE DRAG OVERLAY ========== */
+.stage-drag-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    backdrop-filter: blur(4px);
+}
+
+.stage-drag-overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.stage-drag-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 32px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    transform: translateY(-20px);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    transition-delay: 0.05s;
+}
+
+.stage-drag-overlay.active .stage-drag-header {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.drag-lead-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: white;
+    font-size: 16px;
+}
+
+.drag-lead-info i {
+    color: var(--accent);
+    font-size: 18px;
+}
+
+.drag-lead-info strong {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.stage-drag-header .btn-ghost {
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.stage-drag-header .btn-ghost:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.stage-drag-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    overflow-y: auto;
+}
+
+.stage-drag-grid {
+    display: flex;
+    gap: 64px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.stage-section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 280px;
+    transform: translateY(30px);
+    opacity: 0;
+    transition: transform 0.35s ease, opacity 0.35s ease;
+}
+
+.stage-drag-overlay.active .stage-section:first-child {
+    transition-delay: 0.1s;
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.stage-drag-overlay.active .stage-section:last-child {
+    transition-delay: 0.15s;
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.stage-section-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0;
+}
+
+.stage-section-title i {
+    font-size: 14px;
+}
+
+.stage-targets {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.stage-drop-target {
+    position: relative;
+    width: 160px;
+    height: 90px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.8);
+    transform: scale(0.9);
+    opacity: 0;
+}
+
+.stage-drag-overlay.active .stage-drop-target {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Staggered animation for stage targets */
+.stage-targets .stage-drop-target:nth-child(1) { transition-delay: 0.12s; }
+.stage-targets .stage-drop-target:nth-child(2) { transition-delay: 0.15s; }
+.stage-targets .stage-drop-target:nth-child(3) { transition-delay: 0.18s; }
+.stage-targets .stage-drop-target:nth-child(4) { transition-delay: 0.21s; }
+.stage-targets .stage-drop-target:nth-child(5) { transition-delay: 0.24s; }
+.stage-targets .stage-drop-target:nth-child(6) { transition-delay: 0.27s; }
+.stage-targets .stage-drop-target:nth-child(7) { transition-delay: 0.30s; }
+.stage-targets .stage-drop-target:nth-child(8) { transition-delay: 0.33s; }
+
+.stage-drag-overlay.active .stage-drop-target:hover,
+.stage-drag-overlay.active .stage-drop-target.drag-over {
+    transform: scale(1.08);
+    border-style: solid;
+    border-color: var(--target-color);
+    background: color-mix(in srgb, var(--target-color) 25%, transparent);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 4px color-mix(in srgb, var(--target-color) 20%, transparent);
+}
+
+.stage-drop-target .stage-icon {
+    transition: transform 0.2s ease;
+}
+
+.stage-drag-overlay.active .stage-drop-target:hover .stage-icon,
+.stage-drag-overlay.active .stage-drop-target.drag-over .stage-icon {
+    transform: scale(1.15);
+}
+
+.stage-drop-target.current {
+    border-color: white;
+    background: rgba(255, 255, 255, 0.1);
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.stage-drop-target.current::after {
+    content: 'Current';
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-size: 9px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.stage-drop-target .stage-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--target-color);
+    color: white;
+    font-size: 12px;
+}
+
+.stage-drop-target .stage-name {
+    text-transform: capitalize;
+}
+
+.drag-hint {
+    margin-top: 32px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.4);
+    text-align: center;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    transition-delay: 0.35s;
+}
+
+.stage-drag-overlay.active .drag-hint {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .stage-drag-grid {
+        flex-direction: column;
+        gap: 32px;
+    }
+
+    .stage-targets {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stage-drop-target {
+        width: 140px;
+        height: 80px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stage-targets {
+        grid-template-columns: 1fr;
+    }
+
+    .stage-drop-target {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentLeadId = null;
+const stages = {{ stages|tojson|safe }};
+const stagesPre = {{ stages_pre|tojson|safe }};
+const stagesPost = {{ stages_post|tojson|safe }};
+let currentTracker = '{{ current_tracker }}';
+let currentStage = '{{ current_stage }}';
+let currentSource = '{{ current_source }}';
+let currentSort = '{{ current_sort|default("icp_score") }}';
+let currentSortDir = '{{ current_sort_dir|default("desc") }}';
+let isLoading = false;
+
+// Initialize sort icons on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const activeHeader = document.querySelector(`.data-table th[data-sort="${currentSort}"]`);
+    if (activeHeader) {
+        activeHeader.classList.add(currentSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+});
+
+// Stage colors for rendering
+const stageColors = {
+    'research': '#6B7280', 'queued': '#3B82F6', 'dm_sent': '#8B5CF6',
+    'follow_up_1': '#F59E0B', 'follow_up_2': '#EC4899', 'no_response': '#EF4444',
+    'replied': '#10B981', 'discovery_booked': '#3B82F6', 'discovery_done': '#8B5CF6',
+    'audit_scheduled': '#F59E0B', 'proposal_sent': '#EC4899', 'negotiation': '#F97316',
+    'paid': '#22C55E', 'rejected': '#EF4444'
+};
+
+// Stage icons for drag overlay
+const stageIcons = {
+    'research': 'fa-search', 'queued': 'fa-clock', 'dm_sent': 'fa-paper-plane',
+    'follow_up_1': 'fa-redo', 'follow_up_2': 'fa-redo-alt', 'no_response': 'fa-times-circle',
+    'replied': 'fa-reply', 'discovery_booked': 'fa-calendar-check', 'discovery_done': 'fa-check-circle',
+    'audit_scheduled': 'fa-clipboard-check', 'proposal_sent': 'fa-file-invoice', 'negotiation': 'fa-handshake',
+    'paid': 'fa-dollar-sign', 'rejected': 'fa-ban'
+};
+
+// ============== DRAG-TO-STAGE FUNCTIONALITY ==============
+let draggedLeadId = null;
+let draggedLeadName = '';
+let draggedLeadStagePre = '';
+let draggedLeadStagePost = '';
+
+function handleRowDragStart(e, leadId, leadName, stagePre, stagePost) {
+    e.stopPropagation();
+    draggedLeadId = leadId;
+    draggedLeadName = leadName;
+    draggedLeadStagePre = stagePre;
+    draggedLeadStagePost = stagePost;
+
+    // Set drag data
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', leadId);
+
+    // Create custom drag ghost with company tile
+    const ghost = createDragGhost(leadName);
+    document.body.appendChild(ghost);
+
+    // Position ghost offscreen initially, then set as drag image
+    ghost.style.position = 'absolute';
+    ghost.style.top = '-1000px';
+    ghost.style.left = '-1000px';
+
+    // Use custom drag image
+    e.dataTransfer.setDragImage(ghost, 70, 25);
+
+    // Add dragging class to row
+    const row = e.target.closest('tr');
+    if (row) row.classList.add('dragging');
+
+    // Show overlay with slight delay for better UX
+    setTimeout(() => showStageDragOverlay(), 50);
+}
+
+function createDragGhost(companyName) {
+    // Remove existing ghost if any
+    const existing = document.getElementById('dragGhost');
+    if (existing) existing.remove();
+
+    // Create ghost element styled like a company tile
+    const ghost = document.createElement('div');
+    ghost.id = 'dragGhost';
+    ghost.className = 'drag-ghost';
+
+    const initial = (companyName || '?')[0].toUpperCase();
+    ghost.innerHTML = `
+        <div class="drag-ghost-avatar">${initial}</div>
+        <span class="drag-ghost-name">${companyName}</span>
+    `;
+
+    return ghost;
+}
+
+function handleRowDragEnd(e) {
+    const row = e.target.closest('tr');
+    if (row) row.classList.remove('dragging');
+
+    // Hide overlay when drag ends (dropped outside or cancelled)
+    hideStageDragOverlay();
+
+    // Remove custom drag ghost if exists
+    const ghost = document.getElementById('dragGhost');
+    if (ghost) ghost.remove();
+}
+
+function showStageDragOverlay() {
+    const overlay = document.getElementById('stageDragOverlay');
+    const leadNameEl = document.getElementById('dragLeadName');
+
+    // Set lead name
+    leadNameEl.textContent = draggedLeadName;
+
+    // Render stage targets for both trackers
+    renderStageTargets('preStageTargets', stagesPre, 'pre', draggedLeadStagePre);
+    renderStageTargets('postStageTargets', stagesPost, 'post', draggedLeadStagePost);
+
+    // Show overlay
+    overlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function renderStageTargets(containerId, stages, tracker, currentStage) {
+    const container = document.getElementById(containerId);
+
+    container.innerHTML = stages.map(stage => {
+        const isCurrent = stage.name === currentStage;
+        const icon = stageIcons[stage.name] || 'fa-tag';
+
+        return `
+            <div class="stage-drop-target ${isCurrent ? 'current' : ''}"
+                 style="--target-color: ${stage.color};"
+                 data-stage="${stage.name}"
+                 data-tracker="${tracker}"
+                 ondragover="handleStageDragOver(event)"
+                 ondragleave="handleStageDragLeave(event)"
+                 ondrop="handleStageDrop(event, '${stage.name}', '${tracker}')"
+                 onclick="${isCurrent ? '' : `handleStageClick('${stage.name}', '${tracker}')`}">
+                <div class="stage-icon">
+                    <i class="fas ${icon}"></i>
+                </div>
+                <span class="stage-name">${formatStage(stage.name)}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function handleStageDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.stage-drop-target');
+    if (target && !target.classList.contains('current')) {
+        target.classList.add('drag-over');
+    }
+}
+
+function handleStageDragLeave(e) {
+    const target = e.target.closest('.stage-drop-target');
+    if (target) {
+        target.classList.remove('drag-over');
+    }
+}
+
+function handleStageDrop(e, stage, tracker) {
+    e.preventDefault();
+    const target = e.target.closest('.stage-drop-target');
+    if (target) target.classList.remove('drag-over');
+
+    if (target && target.classList.contains('current')) {
+        return; // Can't drop on current stage
+    }
+
+    moveLeadToStage(draggedLeadId, stage, tracker);
+}
+
+function handleStageClick(stage, tracker) {
+    // Allow clicking on stage targets as alternative to drag-drop
+    moveLeadToStage(draggedLeadId, stage, tracker);
+}
+
+async function moveLeadToStage(leadId, stage, tracker) {
+    hideStageDragOverlay();
+
+    // If moving to post-conversation and lead doesn't have stage_post, start conversation first
+    if (tracker === 'post' && !draggedLeadStagePost) {
+        try {
+            await fetch(`/api/leads/${leadId}/start-conversation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+        } catch (e) {
+            showToast('Failed to start conversation', 'error');
+            return;
+        }
+    }
+
+    // Update the stage
+    const endpoint = tracker === 'pre'
+        ? `/api/leads/${leadId}/stage/pre`
+        : `/api/leads/${leadId}/stage/post`;
+
+    try {
+        await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage })
+        });
+
+        showToast(`Moved to ${formatStage(stage)}`);
+
+        // Immediately update the table
+        handleStageChangeInTable(leadId, stage, tracker);
+    } catch (e) {
+        showToast('Failed to update stage', 'error');
+    }
+}
+
+function hideStageDragOverlay() {
+    const overlay = document.getElementById('stageDragOverlay');
+
+    // Only proceed if overlay is active
+    if (!overlay.classList.contains('active')) return;
+
+    overlay.classList.remove('active');
+    document.body.style.overflow = '';
+
+    // Clean up drag ghost
+    const ghost = document.getElementById('dragGhost');
+    if (ghost) ghost.remove();
+
+    // Reset drag state
+    draggedLeadId = null;
+    draggedLeadName = '';
+    draggedLeadStagePre = '';
+    draggedLeadStagePost = '';
+
+    // Remove dragging class from any rows
+    document.querySelectorAll('.data-row.dragging').forEach(row => {
+        row.classList.remove('dragging');
+    });
+}
+
+function cancelStageDrag() {
+    hideStageDragOverlay();
+}
+
+async function refreshCurrentView() {
+    try {
+        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}`);
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+        renderStageFilters(data.stages, data.stats);
+    } catch (e) {
+        // Fallback to reload if fetch fails
+        location.reload();
+    }
+}
+
+// Escape key to cancel drag
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const dragOverlay = document.getElementById('stageDragOverlay');
+        if (dragOverlay.classList.contains('active')) {
+            cancelStageDrag();
+        }
+    }
+});
+
+// Fast tab switching
+async function switchTracker(tracker) {
+    if (isLoading || tracker === currentTracker) return;
+    isLoading = true;
+
+    // Update UI immediately
+    document.querySelectorAll('.tracker-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.tracker-tab[data-tracker="${tracker}"]`).classList.add('active');
+
+    // Show loading state on table
+    const tbody = document.querySelector('.data-table tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
+
+    currentTracker = tracker;
+    currentStage = 'all';
+
+    try {
+        const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
+        const res = await fetch(`/api/leads?tracker=${tracker}&stage=all${sourceParam}`);
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+        renderStageFilters(data.stages, data.stats);
+        updateURL();
+    } catch (e) {
+        showToast('Failed to load leads', 'error');
+    } finally {
+        isLoading = false;
+    }
+}
+
+async function switchStage(stage) {
+    if (isLoading || stage === currentStage) return;
+    isLoading = true;
+
+    // Update UI immediately
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.filter-btn[data-stage="${stage}"]`)?.classList.add('active');
+
+    // Show loading state
+    const tbody = document.querySelector('.data-table tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
+
+    currentStage = stage;
+
+    try {
+        const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
+        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${stage}${sourceParam}`);
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+        updateURL();
+    } catch (e) {
+        showToast('Failed to load leads', 'error');
+    } finally {
+        isLoading = false;
+    }
+}
+
+async function switchSource(source) {
+    if (isLoading || source === currentSource) return;
+    isLoading = true;
+
+    // Show loading state
+    const tbody = document.querySelector('.data-table tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
+
+    currentSource = source;
+
+    try {
+        const sourceParam = source !== 'all' ? `&source=${source}` : '';
+        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}${sourceParam}&sort=${currentSort}&sort_dir=${currentSortDir}`);
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+        updateURL();
+    } catch (e) {
+        showToast('Failed to load leads', 'error');
+    } finally {
+        isLoading = false;
+    }
+}
+
+async function sortBy(field) {
+    if (isLoading) return;
+
+    // Toggle direction if same field, otherwise default to ascending
+    if (currentSort === field) {
+        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort = field;
+        currentSortDir = 'asc';
+    }
+
+    // Update header icons
+    document.querySelectorAll('.data-table th.sortable').forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+    });
+    const activeHeader = document.querySelector(`.data-table th[data-sort="${field}"]`);
+    if (activeHeader) {
+        activeHeader.classList.add(currentSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+
+    isLoading = true;
+    const tbody = document.querySelector('.data-table tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
+
+    try {
+        const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
+        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}${sourceParam}&sort=${currentSort}&sort_dir=${currentSortDir}`);
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+    } catch (e) {
+        showToast('Failed to sort leads', 'error');
+    } finally {
+        isLoading = false;
+    }
+}
+
+function renderLeadsTable(leads) {
+    const tbody = document.querySelector('.data-table tbody');
+
+    if (!leads || leads.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="empty-state"><i class="fas fa-inbox"></i><p>No leads found</p></div></td></tr>`;
+        return;
+    }
+
+    const activeStages = currentTracker === 'pre' ? stagesPre : stagesPost;
+
+    tbody.innerHTML = leads.map((lead, idx) => {
+        const stageName = currentTracker === 'pre' ? lead.stage_pre : lead.stage_post;
+        const stageColor = stageColors[stageName] || '#6B7280';
+        const priority = lead.priority || 'medium';
+        const escapedName = escapeHtml(lead.company_name || 'Unknown').replace(/'/g, "\\'");
+        const score = lead.icp_score || 0;
+        const scoreClass = score >= 80 ? 'score-high' : (score >= 50 ? 'score-medium' : 'score-low');
+
+        return `
+        <tr class="data-row ${idx % 2 === 0 ? 'row-alt' : ''}" data-lead-id="${lead.id}" data-company-name="${escapeHtml(lead.company_name)}" data-stage-pre="${lead.stage_pre || ''}" data-stage-post="${lead.stage_post || ''}" onclick="openLeadPanel(${lead.id})">
+            <td class="td-drag" onclick="event.stopPropagation();">
+                <div class="drag-handle" draggable="true"
+                     ondragstart="handleRowDragStart(event, ${lead.id}, '${escapedName}', '${lead.stage_pre || ''}', '${lead.stage_post || ''}')"
+                     ondragend="handleRowDragEnd(event)">
+                    <i class="fas fa-grip-vertical"></i>
+                </div>
+            </td>
+            <td class="td-checkbox" onclick="event.stopPropagation();">
+                <input type="checkbox" class="lead-checkbox" value="${lead.id}" onchange="updateSelection()">
+            </td>
+            <td class="td-company">
+                <div class="company-cell">
+                    <div class="avatar">${(lead.company_name || '?')[0].toUpperCase()}</div>
+                    <div class="company-info">
+                        <span class="company-name">${escapeHtml(lead.company_name || 'Unknown')}</span>
+                        ${lead.industry_tags ? `<span class="company-meta">${escapeHtml(lead.industry_tags)}</span>` :
+                          lead.website ? `<span class="company-meta">${escapeHtml(lead.website.replace(/^https?:\/\/(www\.)?/, ''))}</span>` : ''}
+                    </div>
+                </div>
+            </td>
+            <td class="td-contact">
+                ${lead.founders || lead.attendee_email ? `
+                <div class="contact-info">
+                    <span class="contact-name">${escapeHtml(lead.founders || '-')}</span>
+                    ${lead.attendee_email ? `<span class="contact-email">${escapeHtml(lead.attendee_email)}</span>` : ''}
+                </div>
+                ` : '<span class="text-muted">-</span>'}
+            </td>
+            <td class="td-score">
+                ${score ? `<span class="score-badge ${scoreClass}">${score}</span>` : '<span class="text-muted">-</span>'}
+            </td>
+            <td class="td-source">
+                ${lead.source === 'calcom' ? '<span class="badge badge-purple"><i class="fas fa-calendar-check"></i> Cal.com</span>' :
+                  lead.source === 'google_sheets' ? '<span class="badge badge-green"><i class="fas fa-table"></i> Sheets</span>' :
+                  lead.source ? `<span class="badge">${escapeHtml(lead.source)}</span>` : '<span class="text-muted">-</span>'}
+            </td>
+            <td class="td-priority" onclick="event.stopPropagation();">
+                <select onchange="updatePriority(${lead.id}, this.value)" class="select-sm priority-${priority}">
+                    <option value="high" ${priority === 'high' ? 'selected' : ''}>🔴 High</option>
+                    <option value="medium" ${priority === 'medium' ? 'selected' : ''}>🟡 Medium</option>
+                    <option value="low" ${priority === 'low' ? 'selected' : ''}>🟢 Low</option>
+                </select>
+            </td>
+            <td class="td-stage" onclick="event.stopPropagation();">
+                <select onchange="${currentTracker === 'pre' ? 'updateStagePre' : 'updateStagePost'}(${lead.id}, this.value)" class="select-sm stage-select" style="--stage-color: ${stageColor};">
+                    ${activeStages.map(s => `<option value="${s.name}" ${stageName === s.name ? 'selected' : ''}>${formatStage(s.name)}</option>`).join('')}
+                </select>
+            </td>
+            <td class="td-actions">
+                <div class="actions-group">
+                    ${lead.website ? `<a href="${escapeHtml(lead.website)}" target="_blank" class="icon-btn" onclick="event.stopPropagation();" title="Visit website"><i class="fas fa-external-link-alt"></i></a>` : ''}
+                    <button class="icon-btn" onclick="event.stopPropagation(); openLeadPanel(${lead.id});" title="View details"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+
+    selectedLeads.clear();
+    updateBulkActionBar();
+}
+
+function renderStageFilters(stages, stats) {
+    const container = document.getElementById('stageFilters');
+    const stageCounts = currentTracker === 'pre' ? (stats.by_stage_pre || {}) : (stats.by_stage_post || {});
+    const total = Object.values(stageCounts).reduce((a, b) => a + b, 0);
+
+    let html = `<button type="button" class="filter-btn active" data-stage="all" onclick="switchStage('all')">All<span class="filter-count">${total}</span></button>`;
+
+    stages.forEach(stage => {
+        const count = stageCounts[stage.name] || 0;
+        html += `<button type="button" class="filter-btn" data-stage="${stage.name}" style="--filter-color: ${stage.color};" onclick="switchStage('${stage.name}')">${formatStage(stage.name)}${count > 0 ? `<span class="filter-count">${count}</span>` : ''}</button>`;
+    });
+
+    container.innerHTML = html;
+
+    // Update counts in tracker tabs
+    const preTotal = Object.values(stats.by_stage_pre || {}).reduce((a, b) => a + b, 0);
+    const postTotal = Object.values(stats.by_stage_post || {}).reduce((a, b) => a + b, 0);
+    document.getElementById('preCount').textContent = preTotal.toLocaleString();
+    document.getElementById('postCount').textContent = postTotal.toLocaleString();
+}
+
+function updateURL() {
+    const url = new URL(window.location);
+    url.searchParams.set('tracker', currentTracker);
+    if (currentStage !== 'all') {
+        url.searchParams.set('stage', currentStage);
+    } else {
+        url.searchParams.delete('stage');
+    }
+    if (currentSource !== 'all') {
+        url.searchParams.set('source', currentSource);
+    } else {
+        url.searchParams.delete('source');
+    }
+    history.replaceState({}, '', url);
+}
+
+function formatStage(stage) {
+    return stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function updateStagePre(leadId, stage) {
+    try {
+        await fetch(`/api/leads/${leadId}/stage/pre`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage })
+        });
+        showToast(`Moved to ${formatStage(stage)}`);
+
+        // Immediately update the table
+        handleStageChangeInTable(leadId, stage, 'pre');
+    } catch (e) {
+        showToast('Failed to update stage', 'error');
+    }
+}
+
+async function updateStagePost(leadId, stage) {
+    try {
+        await fetch(`/api/leads/${leadId}/stage/post`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage })
+        });
+        showToast(`Moved to ${formatStage(stage)}`);
+
+        // Immediately update the table
+        handleStageChangeInTable(leadId, stage, 'post');
+    } catch (e) {
+        showToast('Failed to update stage', 'error');
+    }
+}
+
+function handleStageChangeInTable(leadId, newStage, tracker) {
+    const row = document.querySelector(`tr[data-lead-id="${leadId}"]`);
+    if (!row) return;
+
+    // Update row data attributes
+    if (tracker === 'pre') {
+        row.dataset.stagePre = newStage;
+    } else {
+        row.dataset.stagePost = newStage;
+    }
+
+    // If we're filtering by a specific stage (not 'all'), remove the row if it no longer matches
+    if (currentStage !== 'all' && currentTracker === tracker) {
+        // Animate the row out
+        row.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        row.style.opacity = '0';
+        row.style.transform = 'translateX(20px)';
+
+        setTimeout(() => {
+            row.remove();
+
+            // Check if table is now empty
+            const tbody = document.querySelector('.data-table tbody');
+            if (!tbody.querySelector('tr.data-row')) {
+                tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><div class="empty-state"><i class="fas fa-inbox"></i><p>No leads found</p></div></td></tr>`;
+            }
+
+            // Refresh counts in the background
+            refreshStageCounts();
+        }, 300);
+    } else {
+        // Just update the select styling
+        const stageSelect = row.querySelector('.stage-select');
+        if (stageSelect) {
+            const color = stageColors[newStage] || '#6B7280';
+            stageSelect.style.setProperty('--stage-color', color);
+        }
+
+        // Refresh counts
+        refreshStageCounts();
+    }
+}
+
+async function refreshStageCounts() {
+    try {
+        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=all`);
+        const data = await res.json();
+
+        // Update filter counts
+        const stageCounts = currentTracker === 'pre' ? (data.stats.by_stage_pre || {}) : (data.stats.by_stage_post || {});
+        const total = Object.values(stageCounts).reduce((a, b) => a + b, 0);
+
+        // Update "All" count
+        const allBtn = document.querySelector('.filter-btn[data-stage="all"] .filter-count');
+        if (allBtn) allBtn.textContent = total;
+
+        // Update individual stage counts
+        Object.entries(stageCounts).forEach(([stage, count]) => {
+            const btn = document.querySelector(`.filter-btn[data-stage="${stage}"] .filter-count`);
+            if (btn) btn.textContent = count;
+        });
+
+        // Update tracker tab counts
+        const preTotal = Object.values(data.stats.by_stage_pre || {}).reduce((a, b) => a + b, 0);
+        const postTotal = Object.values(data.stats.by_stage_post || {}).reduce((a, b) => a + b, 0);
+        document.getElementById('preCount').textContent = preTotal.toLocaleString();
+        document.getElementById('postCount').textContent = postTotal.toLocaleString();
+    } catch (e) {
+        // Silently fail - counts will be stale but not critical
+    }
+}
+
+async function updatePriority(leadId, priority) {
+    try {
+        await fetch(`/api/leads/${leadId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ priority })
+        });
+        // Update select styling
+        const select = event.target;
+        select.className = `select-sm priority-${priority}`;
+        showToast(`Priority set to ${priority}`);
+    } catch (e) {
+        showToast('Failed to update priority', 'error');
+    }
+}
+
+async function startConversation(leadId) {
+    try {
+        await fetch(`/api/leads/${leadId}/start-conversation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        showToast('Moved to Post-Conversation!');
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to start conversation', 'error');
+    }
+}
+
+function openLeadPanel(leadId) {
+    currentLeadId = leadId;
+    const panel = document.getElementById('leadPanel');
+    panel.classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    // Load lead details
+    loadLeadDetails(leadId);
+}
+
+function closeLeadPanel() {
+    const panel = document.getElementById('leadPanel');
+    panel.classList.remove('open');
+    document.body.style.overflow = '';
+    currentLeadId = null;
+}
+
+async function loadLeadDetails(leadId) {
+    const panelBody = document.getElementById('panelBody');
+    const panelTitle = document.getElementById('panelCompanyName');
+
+    panelBody.innerHTML = `
+        <div class="panel-loading">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Loading lead details...</span>
+        </div>
+    `;
+
+    try {
+        const res = await fetch(`/api/leads/${leadId}`);
+        const data = await res.json();
+
+        if (data.error) {
+            panelBody.innerHTML = `<div class="panel-empty">Lead not found</div>`;
+            return;
+        }
+
+        panelTitle.textContent = data.lead.company_name;
+        renderLeadPanel(data);
+    } catch (e) {
+        panelBody.innerHTML = `<div class="panel-empty">Error loading lead</div>`;
+    }
+}
+
+function renderLeadPanel(data) {
+    const lead = data.lead;
+    const activities = data.activities || [];
+
+    // Store current lead data globally for editing
+    window.currentPanelLead = {...lead};
+
+    const scoreClass = lead.icp_score >= 70 ? 'high' : lead.icp_score >= 50 ? 'medium' : 'low';
+    const preStages = stagesPre || [];
+    const postStages = stagesPost || [];
+
+    // Format date helper
+    const formatDate = (dateStr) => {
+        if (!dateStr) return '-';
+        try {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        } catch {
+            return dateStr;
+        }
+    };
+
+    let html = `
+        <!-- Company Header (Editable) -->
+        <div class="panel-company-header">
+            <div class="panel-avatar">${(lead.company_name || '?')[0].toUpperCase()}</div>
+            <div class="panel-company-info" style="flex: 1;">
+                <input type="text" class="panel-edit-input panel-edit-title" id="edit_company_name"
+                       value="${escapeHtml(lead.company_name || '')}" placeholder="Company name"
+                       onchange="markPanelDirty()">
+                <input type="text" class="panel-edit-input panel-edit-meta" id="edit_industry_tags"
+                       value="${escapeHtml(lead.industry_tags || '')}" placeholder="Industry tags (e.g. AI, SaaS)"
+                       onchange="markPanelDirty()">
+                <div class="panel-website-row">
+                    <input type="url" class="panel-edit-input panel-edit-meta" id="edit_website"
+                           value="${escapeHtml(lead.website || '')}" placeholder="https://example.com" style="flex: 1;"
+                           onchange="markPanelDirty()">
+                    ${lead.website ? `<a href="${escapeHtml(lead.website)}" target="_blank" class="panel-link-btn" title="Visit website"><i class="fas fa-external-link-alt"></i></a>` : ''}
+                </div>
+            </div>
+        </div>
+
+        <!-- Priority Selection -->
+        <div class="panel-section">
+            <div class="panel-section-title">Priority</div>
+            <div class="panel-priority-buttons" id="priorityButtons">
+                <button type="button" class="priority-btn priority-high ${lead.priority === 'high' ? 'active' : ''}"
+                        onclick="setPanelPriority('high')">
+                    <span class="priority-dot"></span> High
+                </button>
+                <button type="button" class="priority-btn priority-medium ${lead.priority === 'medium' || !lead.priority ? 'active' : ''}"
+                        onclick="setPanelPriority('medium')">
+                    <span class="priority-dot"></span> Medium
+                </button>
+                <button type="button" class="priority-btn priority-low ${lead.priority === 'low' ? 'active' : ''}"
+                        onclick="setPanelPriority('low')">
+                    <span class="priority-dot"></span> Low
+                </button>
+            </div>
+        </div>
+
+        <!-- Pre-Conversation Stage -->
+        <div class="panel-section">
+            <div class="panel-section-title">Pre-Conversation Stage</div>
+            <div class="panel-stage-buttons" id="preStageButtons">
+                ${preStages.map(s => `
+                    <button type="button" class="stage-btn ${lead.stage_pre === s.name ? 'active' : ''}"
+                            style="--stage-color: ${s.color};"
+                            onclick="setPanelStagePre('${s.name}')">
+                        ${formatStage(s.name)}
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Cold Outreach (Pre-conversation only) -->
+        ${!lead.stage_post ? `
+        <div class="panel-section">
+            <div class="panel-section-title">Cold Outreach</div>
+            <button type="button" onclick="generateDM(this)" class="btn btn-primary dm-generate-btn" style="width: 100%;">
+                <i class="fas fa-magic"></i> Generate Personalized DM
+            </button>
+            <p class="dm-hint">Scans LinkedIn profile and website to craft a personalized message</p>
+        </div>
+        ` : ''}
+
+        <!-- Post-Conversation Stage -->
+        <div class="panel-section">
+            <div class="panel-section-title">Post-Conversation Stage</div>
+            ${!lead.stage_post ? `
+                <button onclick="startConversationFromPanel()" class="btn btn-success" style="width: 100%; margin-bottom: 12px;">
+                    <i class="fas fa-reply"></i> They Replied! Start Conversation
+                </button>
+            ` : `
+                <div style="font-size: 12px; color: var(--success); padding: 8px 12px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; margin-bottom: 12px;">
+                    <i class="fas fa-check-circle"></i> Started ${formatDate(lead.conversation_started_at)}
+                </div>
+            `}
+            <div class="panel-stage-buttons" id="postStageButtons">
+                ${postStages.map(s => `
+                    <button type="button" class="stage-btn ${lead.stage_post === s.name ? 'active' : ''}"
+                            style="--stage-color: ${s.color};" ${!lead.stage_post ? 'disabled' : ''}
+                            onclick="setPanelStagePost('${s.name}')">
+                        ${formatStage(s.name)}
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Potential Value (only for post-conversation leads) -->
+        ${lead.stage_post ? `
+        <div class="panel-section">
+            <div class="panel-section-title">Potential Value</div>
+            <div class="panel-value-buttons" id="valueButtons">
+                ${['<$5k', '$5k-10k', '$10k-20k', '$20k-30k', '$30k-50k', '$50k-100k', '>$100k'].map(v => `
+                    <button type="button" class="value-btn ${lead.potential_value === v ? 'active' : ''}"
+                            onclick="setPanelValue('${v}')">
+                        ${v}
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Contact & Funding Info -->
+        <div class="panel-section">
+            <div class="panel-section-title">Details</div>
+            <div class="panel-form-grid">
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Founders</label>
+                    <input type="text" class="panel-edit-input" id="edit_founders"
+                           value="${escapeHtml(lead.founders || '')}" placeholder="John Doe, Jane Smith"
+                           onchange="markPanelDirty()">
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Contact Email</label>
+                    <input type="email" class="panel-edit-input" id="edit_attendee_email"
+                           value="${escapeHtml(lead.attendee_email || '')}" placeholder="contact@company.com"
+                           onchange="markPanelDirty()">
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Founder LinkedIn</label>
+                    <div class="linkedin-input-wrapper">
+                        <input type="url" class="panel-edit-input" id="edit_linkedin_url"
+                               value="${escapeHtml(lead.linkedin_url || '')}" placeholder="https://linkedin.com/in/founder"
+                               onchange="markPanelDirty()">
+                        ${!lead.linkedin_url && lead.founders ? `
+                        <a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(lead.founders.split(',')[0].trim())}"
+                           target="_blank" class="linkedin-search-btn" title="Search on LinkedIn">
+                            <i class="fab fa-linkedin"></i>
+                        </a>` : ''}
+                    </div>
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Company LinkedIn</label>
+                    <div class="linkedin-input-wrapper">
+                        <input type="url" class="panel-edit-input" id="edit_company_linkedin_url"
+                               value="${escapeHtml(lead.company_linkedin_url || '')}" placeholder="https://linkedin.com/company/name"
+                               onchange="markPanelDirty()">
+                        ${!lead.company_linkedin_url && lead.company_name ? `
+                        <a href="https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(lead.company_name)}"
+                           target="_blank" class="linkedin-search-btn" title="Search on LinkedIn">
+                            <i class="fab fa-linkedin"></i>
+                        </a>` : ''}
+                    </div>
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Funding Amount</label>
+                    <input type="text" class="panel-edit-input" id="edit_funding_amount"
+                           value="${escapeHtml(lead.funding_amount || '')}" placeholder="$10M"
+                           onchange="markPanelDirty()">
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Funding Stage</label>
+                    <select class="panel-edit-select" id="edit_funding_stage" onchange="markPanelDirty()">
+                        <option value="">Select...</option>
+                        ${['Pre-Seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Series D+', 'YC'].map(s =>
+                            `<option value="${s}" ${lead.funding_stage === s ? 'selected' : ''}>${s}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Location</label>
+                    <input type="text" class="panel-edit-input" id="edit_location"
+                           value="${escapeHtml(lead.location || '')}" placeholder="San Francisco, CA"
+                           onchange="markPanelDirty()">
+                </div>
+                <div class="panel-form-row">
+                    <label class="panel-form-label">Source</label>
+                    <input type="text" class="panel-edit-input" id="edit_source"
+                           value="${escapeHtml(lead.source || '')}" placeholder="LinkedIn, Cold Outreach"
+                           onchange="markPanelDirty()">
+                </div>
+            </div>
+        </div>
+
+        <!-- ICP Score (read-only) -->
+        ${lead.icp_score ? `
+        <div class="panel-section">
+            <div class="panel-section-title">ICP Score</div>
+            <div class="panel-score-display ${scoreClass}">
+                <span class="score-number">${lead.icp_score}</span>
+                <span class="score-label">${scoreClass === 'high' ? 'Great fit' : scoreClass === 'medium' ? 'Good fit' : 'Review needed'}</span>
+            </div>
+        </div>
+        ` : ''}
+    `;
+
+    // Website Analysis if available
+    if (lead.aesthetics_score || lead.brand_score || lead.social_proof_score) {
+        html += `
+            <div class="panel-section">
+                <div class="panel-section-title">Website Analysis</div>
+                <div class="panel-website-scores">
+                    ${lead.aesthetics_score ? `<span class="panel-score-tag"><i class="fas fa-paint-brush" style="color: #8b5cf6;"></i> Aesthetics: ${lead.aesthetics_score}</span>` : ''}
+                    ${lead.brand_score ? `<span class="panel-score-tag"><i class="fas fa-gem" style="color: #f59e0b;"></i> Brand: ${lead.brand_score}</span>` : ''}
+                    ${lead.social_proof_score ? `<span class="panel-score-tag"><i class="fas fa-users" style="color: #10b981;"></i> Social: ${lead.social_proof_score}</span>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // Notes
+    html += `
+        <div class="panel-section">
+            <div class="panel-section-title">Notes</div>
+            <textarea class="panel-edit-textarea" id="edit_notes" placeholder="Add notes about this lead..."
+                      onchange="markPanelDirty()">${escapeHtml(lead.notes || '')}</textarea>
+        </div>
+    `;
+
+    // Recent Activity
+    html += `
+        <div class="panel-section">
+            <div class="panel-section-title">Recent Activity</div>
+            <div class="panel-notes">
+    `;
+
+    if (activities.length > 0) {
+        activities.slice(0, 5).forEach(activity => {
+            html += `
+                <div class="panel-note">
+                    <div class="panel-note-text">${escapeHtml(activity.content)}</div>
+                    <div class="panel-note-meta">${formatDate(activity.created_at)}</div>
+                </div>
+            `;
+        });
+    } else {
+        html += `<div class="panel-empty">No activity yet</div>`;
+    }
+
+    html += `
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="panel-actions">
+            <a href="/leads/${lead.id}" class="btn btn-secondary">
+                <i class="fas fa-expand"></i> Full View
+            </a>
+            <button type="button" class="btn btn-primary" id="panelSaveBtn" onclick="savePanelChanges()">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
+        </div>
+    `;
+
+    document.getElementById('panelBody').innerHTML = html;
+    window.panelDirty = false;
+}
+
+// Panel editing functions
+function markPanelDirty() {
+    window.panelDirty = true;
+    const saveBtn = document.getElementById('panelSaveBtn');
+    if (saveBtn && !saveBtn.classList.contains('btn-accent')) {
+        saveBtn.classList.remove('btn-primary');
+        saveBtn.classList.add('btn-accent');
+    }
+}
+
+function setPanelPriority(priority) {
+    window.currentPanelLead.priority = priority;
+    document.querySelectorAll('#priorityButtons .priority-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`#priorityButtons .priority-${priority}`).classList.add('active');
+    markPanelDirty();
+}
+
+function setPanelStagePre(stage) {
+    window.currentPanelLead.stage_pre = stage;
+    document.querySelectorAll('#preStageButtons .stage-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    markPanelDirty();
+}
+
+function setPanelStagePost(stage) {
+    window.currentPanelLead.stage_post = stage;
+    document.querySelectorAll('#postStageButtons .stage-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    markPanelDirty();
+}
+
+function setPanelValue(value) {
+    window.currentPanelLead.potential_value = value;
+    document.querySelectorAll('#valueButtons .value-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    markPanelDirty();
+}
+
+// ============== DM GENERATION ==============
+let isGeneratingDM = false;
+
+async function generateDM(btn) {
+    if (isGeneratingDM) return;
+
+    const leadId = currentLeadId;
+    if (!leadId) {
+        showToast('No lead selected', 'error');
+        return;
+    }
+
+    isGeneratingDM = true;
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scanning & Generating...';
+
+    try {
+        const res = await fetch(`/api/leads/${leadId}/generate-dm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showDMModal(data.dm, data);
+        } else {
+            showToast(data.error || 'Failed to generate DM', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to generate DM', 'error');
+        console.error('DM generation error:', e);
+    } finally {
+        isGeneratingDM = false;
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+function showDMModal(dm, context) {
+    const modal = document.getElementById('dmModal');
+    const textarea = document.getElementById('generatedDM');
+    const contextEl = document.getElementById('dmContext');
+
+    textarea.value = dm;
+    updateDMCharCount();
+
+    // Show context tags
+    let contextHtml = '';
+    if (context.linkedin_data?.fetched) {
+        contextHtml += '<span class="dm-context-tag success"><i class="fab fa-linkedin"></i> LinkedIn</span>';
+    } else {
+        contextHtml += '<span class="dm-context-tag warning"><i class="fab fa-linkedin"></i> No LinkedIn</span>';
+    }
+    if (context.website_data?.fetched) {
+        contextHtml += '<span class="dm-context-tag success"><i class="fas fa-globe"></i> Website</span>';
+    } else {
+        contextHtml += '<span class="dm-context-tag warning"><i class="fas fa-globe"></i> No Website</span>';
+    }
+    contextEl.innerHTML = contextHtml;
+
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    // Focus textarea
+    setTimeout(() => textarea.focus(), 100);
+}
+
+function closeDMModal() {
+    const modal = document.getElementById('dmModal');
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+function updateDMCharCount() {
+    const textarea = document.getElementById('generatedDM');
+    const countEl = document.getElementById('dmCharCount');
+    countEl.textContent = textarea.value.length;
+}
+
+async function regenerateDM() {
+    const btn = event.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Regenerating...';
+
+    try {
+        const res = await fetch(`/api/leads/${currentLeadId}/generate-dm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            document.getElementById('generatedDM').value = data.dm;
+            updateDMCharCount();
+            showToast('New DM generated!');
+        } else {
+            showToast(data.error || 'Failed to regenerate', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to regenerate DM', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-redo"></i> Regenerate';
+    }
+}
+
+function copyDM() {
+    const dm = document.getElementById('generatedDM').value;
+    navigator.clipboard.writeText(dm).then(() => {
+        showToast('DM copied to clipboard!');
+    }).catch(() => {
+        // Fallback for older browsers
+        const textarea = document.getElementById('generatedDM');
+        textarea.select();
+        document.execCommand('copy');
+        showToast('DM copied to clipboard!');
+    });
+}
+
+// Update char count on input
+document.addEventListener('DOMContentLoaded', () => {
+    const dmTextarea = document.getElementById('generatedDM');
+    if (dmTextarea) {
+        dmTextarea.addEventListener('input', updateDMCharCount);
+    }
+});
+
+// Close modal on escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const dmModal = document.getElementById('dmModal');
+        if (dmModal.classList.contains('active')) {
+            closeDMModal();
+        }
+    }
+});
+
+async function startConversationFromPanel() {
+    const leadId = currentLeadId;
+    try {
+        await fetch(`/api/leads/${leadId}/start-conversation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        showToast('Moved to Post-Conversation!');
+        loadLeadDetails(leadId); // Reload panel
+        // Refresh the table if we're on pre tracker
+        if (currentTracker === 'pre') {
+            switchTracker('post');
+        }
+    } catch (e) {
+        showToast('Failed to start conversation', 'error');
+    }
+}
+
+async function savePanelChanges() {
+    const leadId = currentLeadId;
+    const saveBtn = document.getElementById('panelSaveBtn');
+
+    // Gather all form data
+    const updates = {
+        company_name: document.getElementById('edit_company_name')?.value || '',
+        website: document.getElementById('edit_website')?.value || '',
+        industry_tags: document.getElementById('edit_industry_tags')?.value || '',
+        founders: document.getElementById('edit_founders')?.value || '',
+        attendee_email: document.getElementById('edit_attendee_email')?.value || '',
+        linkedin_url: document.getElementById('edit_linkedin_url')?.value || '',
+        company_linkedin_url: document.getElementById('edit_company_linkedin_url')?.value || '',
+        funding_amount: document.getElementById('edit_funding_amount')?.value || '',
+        funding_stage: document.getElementById('edit_funding_stage')?.value || '',
+        location: document.getElementById('edit_location')?.value || '',
+        source: document.getElementById('edit_source')?.value || '',
+        notes: document.getElementById('edit_notes')?.value || '',
+        priority: window.currentPanelLead.priority,
+        stage_pre: window.currentPanelLead.stage_pre,
+        stage_post: window.currentPanelLead.stage_post,
+        potential_value: window.currentPanelLead.potential_value || null,
+    };
+
+    // Show saving state
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+    try {
+        const res = await fetch(`/api/leads/${leadId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+        });
+
+        if (!res.ok) throw new Error('Failed to save');
+
+        showToast('Changes saved!');
+        window.panelDirty = false;
+        saveBtn.classList.remove('btn-accent');
+        saveBtn.classList.add('btn-primary');
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        saveBtn.disabled = false;
+
+        // Update the panel header
+        document.getElementById('panelCompanyName').textContent = updates.company_name;
+
+        // Refresh table to show updated data
+        const res2 = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}`);
+        const data = await res2.json();
+        renderLeadsTable(data.leads);
+
+    } catch (e) {
+        showToast('Failed to save changes', 'error');
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        saveBtn.disabled = false;
+    }
+}
+
+// Close panel with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('leadPanel').classList.contains('open')) {
+        closeLeadPanel();
+    }
+});
+
+// ============== BULK ACTIONS ==============
+let selectedLeads = new Set();
+
+function toggleSelectAll(checkbox) {
+    const checkboxes = document.querySelectorAll('.lead-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        const leadId = parseInt(cb.value);
+        if (checkbox.checked) {
+            selectedLeads.add(leadId);
+            cb.closest('tr').classList.add('selected');
+        } else {
+            selectedLeads.delete(leadId);
+            cb.closest('tr').classList.remove('selected');
+        }
+    });
+    updateBulkActionBar();
+}
+
+function updateSelection() {
+    selectedLeads.clear();
+    const checkboxes = document.querySelectorAll('.lead-checkbox:checked');
+    checkboxes.forEach(cb => {
+        selectedLeads.add(parseInt(cb.value));
+        cb.closest('tr').classList.add('selected');
+    });
+
+    // Update unchecked rows
+    document.querySelectorAll('.lead-checkbox:not(:checked)').forEach(cb => {
+        cb.closest('tr').classList.remove('selected');
+    });
+
+    // Update select all checkbox
+    const allCheckboxes = document.querySelectorAll('.lead-checkbox');
+    const selectAll = document.getElementById('selectAll');
+    selectAll.checked = checkboxes.length === allCheckboxes.length && allCheckboxes.length > 0;
+    selectAll.indeterminate = checkboxes.length > 0 && checkboxes.length < allCheckboxes.length;
+
+    updateBulkActionBar();
+}
+
+function updateBulkActionBar() {
+    const bar = document.getElementById('bulkActionBar');
+    const count = document.getElementById('selectedCount');
+
+    if (selectedLeads.size > 0) {
+        bar.style.display = 'flex';
+        count.textContent = selectedLeads.size;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function clearSelection() {
+    selectedLeads.clear();
+    document.querySelectorAll('.lead-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.closest('tr').classList.remove('selected');
+    });
+    document.getElementById('selectAll').checked = false;
+    document.getElementById('selectAll').indeterminate = false;
+    updateBulkActionBar();
+}
+
+async function bulkUpdatePriority() {
+    const priority = document.getElementById('bulkPrioritySelect').value;
+    if (!priority) {
+        showToast('Please select a priority', 'error');
+        return;
+    }
+
+    if (selectedLeads.size === 0) {
+        showToast('No leads selected', 'error');
+        return;
+    }
+
+    try {
+        const promises = Array.from(selectedLeads).map(leadId =>
+            fetch(`/api/leads/${leadId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ priority })
+            })
+        );
+
+        await Promise.all(promises);
+        showToast(`Set ${selectedLeads.size} leads to ${priority} priority`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to update some leads', 'error');
+    }
+}
+
+async function bulkUpdateStage() {
+    const stage = document.getElementById('bulkStageSelect').value;
+    if (!stage) {
+        showToast('Please select a stage', 'error');
+        return;
+    }
+
+    if (selectedLeads.size === 0) {
+        showToast('No leads selected', 'error');
+        return;
+    }
+
+    const tracker = currentTracker;
+    const endpoint = tracker === 'pre' ? 'stage/pre' : 'stage/post';
+
+    try {
+        const promises = Array.from(selectedLeads).map(leadId =>
+            fetch(`/api/leads/${leadId}/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stage })
+            })
+        );
+
+        await Promise.all(promises);
+        showToast(`Moved ${selectedLeads.size} leads to ${stage.replace(/_/g, ' ')}`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to update some leads', 'error');
+    }
+}
+
+async function bulkDelete() {
+    if (selectedLeads.size === 0) {
+        showToast('No leads selected', 'error');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedLeads.size} leads? This cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const promises = Array.from(selectedLeads).map(leadId =>
+            fetch(`/api/leads/${leadId}`, {
+                method: 'DELETE'
+            })
+        );
+
+        await Promise.all(promises);
+        showToast(`Deleted ${selectedLeads.size} leads`);
+        setTimeout(() => location.reload(), 500);
+    } catch (e) {
+        showToast('Failed to delete some leads', 'error');
+    }
+}
+</script>
+{% endblock %}

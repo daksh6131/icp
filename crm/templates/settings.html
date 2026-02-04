@@ -1,0 +1,878 @@
+{% extends 'base.html' %}
+
+{% block title %}Settings - ICP CRM{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Settings</h1>
+        <p class="page-subtitle">Manage your CRM configuration and data sources</p>
+    </div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 24px; margin-top: 24px;">
+    <!-- Scraping Sources -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-rss" style="color: #f97316; margin-right: 8px;"></i>Scraping Sources</span>
+            <button onclick="openAddSourceModal()" class="btn btn-primary" style="height: 32px; font-size: 12px;">
+                <i class="fas fa-plus"></i> Add Source
+            </button>
+        </div>
+        <div class="card-body" style="padding: 0;">
+            <div id="sourcesList">
+                {% for source in sources %}
+                <div class="source-row" data-source-id="{{ source.id }}">
+                    <div class="source-icon" style="background: {% if source.source_type == 'rss' %}rgba(249, 115, 22, 0.1){% elif source.source_type == 'api' %}rgba(59, 130, 246, 0.1){% else %}rgba(139, 92, 246, 0.1){% endif %};">
+                        <i class="fas {% if source.source_type == 'rss' %}fa-rss{% elif source.source_type == 'api' %}fa-plug{% else %}fa-hand-pointer{% endif %}" style="color: {% if source.source_type == 'rss' %}#f97316{% elif source.source_type == 'api' %}#3b82f6{% else %}#8b5cf6{% endif %};"></i>
+                    </div>
+                    <div class="source-info">
+                        <div class="source-name">{{ source.name }}</div>
+                        <div class="source-meta">
+                            {{ source.description or 'No description' }}
+                            {% if source.url %}
+                            <br><span style="font-family: monospace; font-size: 11px; color: var(--text-tertiary);">{{ source.url|truncate_text(50) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="source-stats">
+                        <div class="source-stat">
+                            <span class="source-stat-value">{{ source.leads_count or 0 }}</span>
+                            <span class="source-stat-label">leads</span>
+                        </div>
+                        {% if source.last_scraped %}
+                        <div class="source-stat">
+                            <span class="source-stat-label" style="font-size: 10px;">Last sync</span>
+                            <span class="source-stat-value" style="font-size: 11px;">{{ source.last_scraped|format_date }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="source-actions">
+                        <label class="toggle-switch">
+                            <input type="checkbox" {% if source.enabled %}checked{% endif %} onchange="toggleSource({{ source.id }})">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button class="btn btn-ghost btn-icon" style="height: 32px; width: 32px;" onclick="editSource({{ source.id }}, '{{ source.name }}', '{{ source.source_type }}', '{{ source.url or '' }}', '{{ source.description or '' }}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-ghost btn-icon" style="height: 32px; width: 32px; color: var(--error);" onclick="deleteSource({{ source.id }}, '{{ source.name }}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% else %}
+                <div class="empty-state" style="padding: 40px;">
+                    <i class="fas fa-plug"></i>
+                    <p>No scraping sources configured</p>
+                    <button onclick="openAddSourceModal()" class="btn btn-primary" style="margin-top: 16px;">
+                        <i class="fas fa-plus"></i> Add Your First Source
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Sources (Google Sheets) -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-database" style="color: #10b981; margin-right: 8px;"></i>Connected Services</span>
+        </div>
+        <div class="card-body">
+            <!-- Google Sheets -->
+            <div class="setting-row">
+                <div class="flex items-center" style="gap: 16px;">
+                    <div class="setting-icon" style="background: rgba(34, 197, 94, 0.1);">
+                        <i class="fab fa-google" style="color: #22c55e;"></i>
+                    </div>
+                    <div>
+                        <h4 style="font-size: 14px; font-weight: 500; color: var(--text-primary);">Google Sheets</h4>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Primary data source for leads and YC founders</p>
+                        {% if sheet_id %}
+                        <p style="font-size: 11px; color: var(--text-tertiary); margin-top: 6px; font-family: monospace;">ID: {{ sheet_id[:20] }}...</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="flex items-center" style="gap: 8px;">
+                    {% if sheet_url %}
+                    <a href="{{ sheet_url }}" target="_blank" rel="noopener" class="btn btn-secondary" style="background: rgba(34, 197, 94, 0.1); color: #22c55e; border-color: rgba(34, 197, 94, 0.2);">
+                        <i class="fas fa-external-link-alt"></i> Open Sheet
+                    </a>
+                    {% endif %}
+                    <button onclick="syncSheets()" class="btn btn-secondary">
+                        <i class="fas fa-sync"></i> Sync Now
+                    </button>
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-light); margin-top: 16px; padding-top: 16px;"></div>
+
+            <!-- Cal.com Integration -->
+            <div class="setting-row">
+                <div class="flex items-center" style="gap: 16px;">
+                    <div class="setting-icon" style="background: rgba(99, 102, 241, 0.1);">
+                        <i class="fas fa-calendar-check" style="color: #6366f1;"></i>
+                    </div>
+                    <div>
+                        <h4 style="font-size: 14px; font-weight: 500; color: var(--text-primary);">Cal.com</h4>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Sync discovery call bookings to CRM automatically</p>
+                        <p id="calcomStatus" style="font-size: 11px; margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+                            <span class="status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: {% if config.CALCOM_API_KEY %}#22c55e{% else %}var(--text-tertiary){% endif %};"></span>
+                            <span style="color: {% if config.CALCOM_API_KEY %}#22c55e{% else %}var(--text-tertiary){% endif %};">
+                                {% if config.CALCOM_API_KEY %}Connected{% else %}Not Configured{% endif %}
+                            </span>
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center" style="gap: 8px;">
+                    {% if config.CALCOM_API_KEY %}
+                    <button onclick="syncCalcom()" id="calcomSyncBtn" class="btn btn-secondary" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; border-color: rgba(99, 102, 241, 0.2);">
+                        <i class="fas fa-sync" id="calcomSyncIcon"></i> Sync Bookings
+                    </button>
+                    {% else %}
+                    <button onclick="showCalcomSetup()" class="btn btn-secondary">
+                        <i class="fas fa-cog"></i> Configure
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Cal.com Sync Results (hidden by default) -->
+            <div id="calcomSyncResults" style="display: none; margin-top: 16px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border);">
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 12px;">
+                    <i class="fas fa-check-circle" style="color: #22c55e; margin-right: 6px;"></i>
+                    Sync Complete
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="syncTotal">0</div>
+                        <div class="sync-stat-label">Total</div>
+                    </div>
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="syncCreated" style="color: #22c55e;">0</div>
+                        <div class="sync-stat-label">Created</div>
+                    </div>
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="syncUpdated" style="color: #3b82f6;">0</div>
+                        <div class="sync-stat-label">Updated</div>
+                    </div>
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="syncSkipped" style="color: var(--text-tertiary);">0</div>
+                        <div class="sync-stat-label">Skipped</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-light); margin-top: 16px; padding-top: 16px;"></div>
+
+            <!-- a16z Speedrun -->
+            <div class="setting-row">
+                <div class="flex items-center" style="gap: 16px;">
+                    <div class="setting-icon" style="background: rgba(239, 68, 68, 0.1);">
+                        <i class="fas fa-rocket" style="color: #ef4444;"></i>
+                    </div>
+                    <div>
+                        <h4 style="font-size: 14px; font-weight: 500; color: var(--text-primary);">a16z Speedrun</h4>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Import portfolio companies from a16z Speedrun accelerator</p>
+                    </div>
+                </div>
+                <div class="flex items-center" style="gap: 8px;">
+                    <button onclick="syncA16z()" id="a16zSyncBtn" class="btn btn-secondary" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);">
+                        <i class="fas fa-sync" id="a16zSyncIcon"></i> Sync Companies
+                    </button>
+                </div>
+            </div>
+
+            <!-- a16z Sync Results (hidden by default) -->
+            <div id="a16zSyncResults" style="display: none; margin-top: 16px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border);">
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 12px;">
+                    <i class="fas fa-check-circle" style="color: #22c55e; margin-right: 6px;"></i>
+                    a16z Sync Complete
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="a16zFetched">0</div>
+                        <div class="sync-stat-label">Fetched</div>
+                    </div>
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="a16zImported" style="color: #22c55e;">0</div>
+                        <div class="sync-stat-label">Imported</div>
+                    </div>
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="a16zUpdated" style="color: #3b82f6;">0</div>
+                        <div class="sync-stat-label">Updated</div>
+                    </div>
+                    <div class="sync-stat">
+                        <div class="sync-stat-value" id="a16zSkipped" style="color: var(--text-tertiary);">0</div>
+                        <div class="sync-stat-label">Skipped</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ICP Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-filter" style="color: #a855f7; margin-right: 8px;"></i>ICP Filter Settings</span>
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                <div class="config-card">
+                    <div class="config-label">Min Funding</div>
+                    <div class="config-value">${{ "{:,.0f}".format(config.MIN_FUNDING_AMOUNT / 1000000) }}M</div>
+                </div>
+                <div class="config-card">
+                    <div class="config-label">Lookback Period</div>
+                    <div class="config-value">{{ config.FUNDING_LOOKBACK_DAYS }} days</div>
+                </div>
+                <div class="config-card">
+                    <div class="config-label">Request Delay</div>
+                    <div class="config-value">{{ config.REQUEST_DELAY_SECONDS }}s</div>
+                </div>
+            </div>
+
+            <!-- Target Locations -->
+            <div style="margin-top: 20px;">
+                <div class="section-label">Target Locations</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                    {% for loc in config.TARGET_LOCATIONS %}
+                    <span class="config-tag" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">{{ loc }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- AI Keywords -->
+            <div style="margin-top: 20px;">
+                <div class="section-label">AI Keywords</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                    {% for kw in config.AI_KEYWORDS[:10] %}
+                    <span class="config-tag" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">{{ kw }}</span>
+                    {% endfor %}
+                    {% if config.AI_KEYWORDS|length > 10 %}
+                    <span class="config-tag" style="background: var(--bg-hover); color: var(--text-tertiary);">
+                        +{{ config.AI_KEYWORDS|length - 10 }} more
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Website Analysis -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-globe" style="color: #06b6d4; margin-right: 8px;"></i>Website Analysis</span>
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                <div class="config-card">
+                    <div class="config-label">Cache TTL</div>
+                    <div class="config-value">{{ config.ANALYSIS_CACHE_TTL_DAYS }} days</div>
+                </div>
+                <div class="config-card">
+                    <div class="config-label">Batch Size</div>
+                    <div class="config-value">{{ config.ANALYSIS_BATCH_SIZE }}</div>
+                </div>
+                <div class="config-card">
+                    <div class="config-label">Claude Vision</div>
+                    <div class="config-value" style="font-size: 16px; {% if config.ANTHROPIC_API_KEY %}color: #22c55e{% else %}color: var(--text-tertiary){% endif %};">
+                        {% if config.ANTHROPIC_API_KEY %}Configured{% else %}Not Set{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="card" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);">
+        <div class="card-header" style="border-color: rgba(239, 68, 68, 0.2);">
+            <span class="card-title" style="color: #ef4444;"><i class="fas fa-exclamation-triangle" style="margin-right: 8px;"></i>Danger Zone</span>
+        </div>
+        <div class="card-body">
+            <div class="setting-row">
+                <div>
+                    <h4 style="font-size: 14px; font-weight: 500; color: var(--text-primary);">Clear All Data</h4>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Delete all leads and reset the CRM database. This cannot be undone.</p>
+                </div>
+                <button onclick="if(confirm('Are you sure you want to delete all data? This cannot be undone.')) { alert('Feature not implemented'); }"
+                        class="btn" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2);">
+                    <i class="fas fa-trash"></i> Clear Data
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Source Modal -->
+<div id="sourceModal" class="modal" onclick="if(event.target === this) closeSourceModal()">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">Add Scraping Source</h3>
+            <button class="btn btn-ghost btn-icon" onclick="closeSourceModal()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="sourceId" value="">
+            <div class="form-group">
+                <label class="form-label">Source Name *</label>
+                <input type="text" id="sourceName" class="form-input" placeholder="e.g., TechCrunch RSS">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Source Type *</label>
+                <select id="sourceType" class="form-input">
+                    <option value="rss">RSS Feed</option>
+                    <option value="api">API</option>
+                    <option value="manual">Manual Import</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">URL</label>
+                <input type="url" id="sourceUrl" class="form-input" placeholder="https://example.com/feed.xml">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" id="sourceDescription" class="form-input" placeholder="Brief description of this source">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeSourceModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveSource()">
+                <i class="fas fa-save"></i> Save Source
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.setting-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.source-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-light);
+    transition: background 0.15s ease;
+}
+
+.source-row:hover {
+    background: var(--bg-hover);
+}
+
+.source-row:last-child {
+    border-bottom: none;
+}
+
+.source-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.source-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.source-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.source-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.source-stats {
+    display: flex;
+    gap: 20px;
+    flex-shrink: 0;
+}
+
+.source-stat {
+    text-align: center;
+}
+
+.source-stat-value {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.source-stat-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+}
+
+.source-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-hover);
+    border: 1px solid var(--border);
+    transition: 0.2s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 2px;
+    bottom: 2px;
+    background-color: var(--text-tertiary);
+    transition: 0.2s;
+    border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+    background-color: var(--accent);
+    border-color: var(--accent);
+}
+
+input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+    background-color: white;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.modal.open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 480px;
+    max-width: 90%;
+    max-height: 90vh;
+    overflow: hidden;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+}
+
+.modal.open .modal-content {
+    transform: scale(1);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+.config-card {
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.config-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.config-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+}
+
+.section-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.config-tag {
+    display: inline-block;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 100px;
+    text-transform: capitalize;
+}
+
+/* Cal.com Sync Stats */
+.sync-stat {
+    text-align: center;
+    padding: 8px;
+    background: var(--bg-primary);
+    border-radius: 6px;
+}
+
+.sync-stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.sync-stat-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+.btn-loading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.btn-loading .fa-sync {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+    .setting-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .source-row {
+        flex-wrap: wrap;
+    }
+
+    .source-stats {
+        width: 100%;
+        justify-content: flex-start;
+        margin-top: 8px;
+    }
+
+    .source-actions {
+        width: 100%;
+        justify-content: flex-end;
+        margin-top: 8px;
+    }
+
+    div[style*="grid-template-columns: repeat(3"] {
+        grid-template-columns: 1fr !important;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openAddSourceModal() {
+    document.getElementById('modalTitle').textContent = 'Add Scraping Source';
+    document.getElementById('sourceId').value = '';
+    document.getElementById('sourceName').value = '';
+    document.getElementById('sourceType').value = 'rss';
+    document.getElementById('sourceUrl').value = '';
+    document.getElementById('sourceDescription').value = '';
+    document.getElementById('sourceModal').classList.add('open');
+}
+
+function editSource(id, name, type, url, description) {
+    document.getElementById('modalTitle').textContent = 'Edit Scraping Source';
+    document.getElementById('sourceId').value = id;
+    document.getElementById('sourceName').value = name;
+    document.getElementById('sourceType').value = type;
+    document.getElementById('sourceUrl').value = url;
+    document.getElementById('sourceDescription').value = description;
+    document.getElementById('sourceModal').classList.add('open');
+}
+
+function closeSourceModal() {
+    document.getElementById('sourceModal').classList.remove('open');
+}
+
+async function saveSource() {
+    const id = document.getElementById('sourceId').value;
+    const name = document.getElementById('sourceName').value.trim();
+    const sourceType = document.getElementById('sourceType').value;
+    const url = document.getElementById('sourceUrl').value.trim();
+    const description = document.getElementById('sourceDescription').value.trim();
+
+    if (!name) {
+        showToast('Please enter a source name', 'error');
+        return;
+    }
+
+    const data = {
+        name,
+        source_type: sourceType,
+        url: url || null,
+        description: description || null
+    };
+
+    try {
+        let res;
+        if (id) {
+            res = await fetch(`/api/sources/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        } else {
+            res = await fetch('/api/sources', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        }
+
+        const result = await res.json();
+        if (result.success) {
+            showToast(id ? 'Source updated' : 'Source created');
+            closeSourceModal();
+            location.reload();
+        } else {
+            showToast(result.error || 'Error saving source', 'error');
+        }
+    } catch (e) {
+        showToast('Error saving source', 'error');
+    }
+}
+
+async function deleteSource(id, name) {
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+
+    try {
+        const res = await fetch(`/api/sources/${id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (result.success) {
+            showToast('Source deleted');
+            location.reload();
+        } else {
+            showToast(result.error || 'Error deleting source', 'error');
+        }
+    } catch (e) {
+        showToast('Error deleting source', 'error');
+    }
+}
+
+async function toggleSource(id) {
+    try {
+        const res = await fetch(`/api/sources/${id}/toggle`, { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+            showToast(result.enabled ? 'Source enabled' : 'Source disabled');
+        } else {
+            showToast(result.error || 'Error toggling source', 'error');
+        }
+    } catch (e) {
+        showToast('Error toggling source', 'error');
+    }
+}
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('sourceModal').classList.contains('open')) {
+        closeSourceModal();
+    }
+});
+
+// Cal.com Integration
+async function syncCalcom() {
+    const btn = document.getElementById('calcomSyncBtn');
+    const icon = document.getElementById('calcomSyncIcon');
+    const resultsDiv = document.getElementById('calcomSyncResults');
+
+    // Set loading state
+    btn.classList.add('btn-loading');
+    btn.innerHTML = '<i class="fas fa-sync fa-spin" id="calcomSyncIcon"></i> Syncing...';
+
+    try {
+        const res = await fetch('/api/calcom/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ since_days: 30 })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            // Show results
+            document.getElementById('syncTotal').textContent = data.result.total || 0;
+            document.getElementById('syncCreated').textContent = data.result.created || 0;
+            document.getElementById('syncUpdated').textContent = data.result.updated || 0;
+            document.getElementById('syncSkipped').textContent = data.result.skipped || 0;
+            resultsDiv.style.display = 'block';
+
+            const created = data.result.created || 0;
+            const updated = data.result.updated || 0;
+
+            if (created > 0 || updated > 0) {
+                showToast(`Synced ${created} new, ${updated} updated bookings`, 'success');
+            } else {
+                showToast('No new bookings to sync', 'info');
+            }
+        } else {
+            showToast(data.error || 'Sync failed', 'error');
+            resultsDiv.style.display = 'none';
+        }
+    } catch (e) {
+        showToast('Error syncing Cal.com bookings', 'error');
+        resultsDiv.style.display = 'none';
+    } finally {
+        // Reset button
+        btn.classList.remove('btn-loading');
+        btn.innerHTML = '<i class="fas fa-sync" id="calcomSyncIcon"></i> Sync Bookings';
+    }
+}
+
+function showCalcomSetup() {
+    showToast('Add CALCOM_API_KEY to your .env file to enable Cal.com sync', 'info');
+}
+
+async function syncA16z() {
+    const btn = document.getElementById('a16zSyncBtn');
+    const resultsDiv = document.getElementById('a16zSyncResults');
+
+    // Set loading state
+    btn.classList.add('btn-loading');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+    resultsDiv.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/a16z/sync', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            const r = data.result;
+            document.getElementById('a16zFetched').textContent = r.total_fetched || 0;
+            document.getElementById('a16zImported').textContent = r.imported || 0;
+            document.getElementById('a16zUpdated').textContent = r.updated || 0;
+            document.getElementById('a16zSkipped').textContent = r.skipped || 0;
+            resultsDiv.style.display = 'block';
+
+            if (r.imported > 0 || r.updated > 0) {
+                showToast(`Imported ${r.imported} new, updated ${r.updated} companies from a16z Speedrun`, 'success');
+            } else {
+                showToast('No new companies to import from a16z Speedrun', 'info');
+            }
+        } else {
+            showToast(data.error || 'a16z sync failed', 'error');
+        }
+    } catch (e) {
+        showToast('Error syncing a16z Speedrun companies', 'error');
+    } finally {
+        btn.classList.remove('btn-loading');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync" id="a16zSyncIcon"></i> Sync Companies';
+    }
+}
+
+async function syncSheets() {
+    try {
+        showToast('Syncing from Google Sheets...', 'info');
+        const res = await fetch('/api/sync', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast('Sheets sync complete', 'success');
+        } else {
+            showToast(data.error || 'Sync failed', 'error');
+        }
+    } catch (e) {
+        showToast('Error syncing sheets', 'error');
+    }
+}
+</script>
+{% endblock %}

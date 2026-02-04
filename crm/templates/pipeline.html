@@ -1,0 +1,567 @@
+{% extends 'base.html' %}
+
+{% block title %}Pipeline - ICP CRM{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Pipeline</h1>
+        <p class="page-subtitle">Drag and drop leads between stages to update their status</p>
+    </div>
+</div>
+
+<!-- Tracker Tabs -->
+<div class="tracker-tabs">
+    <button class="tracker-tab active" data-tracker="pre" onclick="switchTracker('pre')">
+        <i class="fas fa-paper-plane"></i>
+        Pre-Conversation
+        <span class="tracker-count">{{ pipeline_data_pre.values()|sum(start=[])|length }}</span>
+    </button>
+    <button class="tracker-tab" data-tracker="post" onclick="switchTracker('post')">
+        <i class="fas fa-comments"></i>
+        Post-Conversation
+        <span class="tracker-count">{{ pipeline_data_post.values()|sum(start=[])|length }}</span>
+    </button>
+</div>
+
+<!-- Pre-Conversation Kanban Board -->
+<div class="kanban-board" id="kanban-pre" x-data="kanban('pre')">
+    {% for stage in stages_pre %}
+    <div class="kanban-column">
+        <div class="kanban-header">
+            <div class="flex items-center" style="gap: 8px;">
+                <span class="kanban-dot" style="background: {{ stage.color }}"></span>
+                <h3 class="kanban-title">{{ stage.name|format_stage }}</h3>
+            </div>
+            <span class="kanban-count">{{ pipeline_data_pre[stage.name]|length }}</span>
+        </div>
+
+        <div class="kanban-cards"
+             x-on:dragover.prevent
+             x-on:drop="handleDrop($event, '{{ stage.name }}')">
+            {% for lead in pipeline_data_pre[stage.name] %}
+            <div class="kanban-card"
+                 draggable="true"
+                 x-on:dragstart="handleDragStart($event, {{ lead.id }})"
+                 x-on:dragend="handleDragEnd($event)">
+                <a href="{{ url_for('lead_detail', lead_id=lead.id) }}" class="kanban-card-link" onclick="event.stopPropagation()">
+                    <div class="flex items-center justify-between">
+                        <div style="flex: 1; min-width: 0;">
+                            <p class="kanban-card-title">{{ lead.company_name }}</p>
+                            <p class="kanban-card-tags">{{ lead.industry_tags|truncate_text(25) if lead.industry_tags else 'No tags' }}</p>
+                        </div>
+                        {% if lead.icp_score %}
+                        <span class="badge {% if lead.icp_score >= 70 %}badge-success{% elif lead.icp_score >= 50 %}badge-info{% endif %}" style="margin-left: 8px;">
+                            {{ lead.icp_score }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {% if lead.funding_amount or lead.location %}
+                    <div class="kanban-card-meta">
+                        {% if lead.funding_amount %}
+                        <span><i class="fas fa-dollar-sign" style="color: #10b981;"></i>{{ lead.funding_amount }}</span>
+                        {% endif %}
+                        {% if lead.location %}
+                        <span><i class="fas fa-map-marker-alt" style="color: #ef4444;"></i>{{ lead.location|truncate_text(15) }}</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    {% if lead.founders %}
+                    <div class="kanban-card-founders">
+                        <i class="fas fa-user" style="color: #8b5cf6;"></i>
+                        <span>{{ lead.founders|truncate_text(20) }}</span>
+                    </div>
+                    {% endif %}
+                </a>
+
+                <div class="kanban-card-actions">
+                    {% if lead.website %}
+                    <a href="{{ lead.website if lead.website.startswith('http') else 'https://' + lead.website }}" target="_blank" rel="noopener" class="card-action-link" onclick="event.stopPropagation();" title="Visit website">
+                        <i class="fas fa-globe"></i>
+                    </a>
+                    {% endif %}
+                    {% if lead.social_links and 'linkedin' in (lead.social_links|lower) %}
+                    <a href="{{ lead.social_links }}" target="_blank" rel="noopener" class="card-action-link linkedin" onclick="event.stopPropagation();" title="View LinkedIn">
+                        <i class="fab fa-linkedin"></i>
+                    </a>
+                    {% endif %}
+                </div>
+
+                <!-- Start Conversation Button (only show in dm_sent, follow_up stages) -->
+                {% if stage.name in ['dm_sent', 'follow_up_1', 'follow_up_2'] %}
+                <button class="start-convo-btn" onclick="startConversation({{ lead.id }})" title="They replied! Move to Post-Conversation">
+                    <i class="fas fa-reply"></i> Got Reply
+                </button>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% if not pipeline_data_pre[stage.name] %}
+            <div class="kanban-empty">
+                <i class="fas fa-inbox"></i>
+                <p>No leads</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Post-Conversation Kanban Board -->
+<div class="kanban-board hidden" id="kanban-post" x-data="kanban('post')">
+    {% for stage in stages_post %}
+    <div class="kanban-column">
+        <div class="kanban-header">
+            <div class="flex items-center" style="gap: 8px;">
+                <span class="kanban-dot" style="background: {{ stage.color }}"></span>
+                <h3 class="kanban-title">{{ stage.name|format_stage }}</h3>
+            </div>
+            <span class="kanban-count">{{ pipeline_data_post[stage.name]|length }}</span>
+        </div>
+
+        <div class="kanban-cards"
+             x-on:dragover.prevent
+             x-on:drop="handleDrop($event, '{{ stage.name }}')">
+            {% for lead in pipeline_data_post[stage.name] %}
+            <div class="kanban-card"
+                 draggable="true"
+                 x-on:dragstart="handleDragStart($event, {{ lead.id }})"
+                 x-on:dragend="handleDragEnd($event)">
+                <a href="{{ url_for('lead_detail', lead_id=lead.id) }}" class="kanban-card-link">
+                    <div class="flex items-center justify-between">
+                        <div style="flex: 1; min-width: 0;">
+                            <p class="kanban-card-title">{{ lead.company_name }}</p>
+                            <p class="kanban-card-tags">{{ lead.industry_tags|truncate_text(25) if lead.industry_tags else 'No tags' }}</p>
+                        </div>
+                        {% if lead.icp_score %}
+                        <span class="badge {% if lead.icp_score >= 70 %}badge-success{% elif lead.icp_score >= 50 %}badge-info{% endif %}" style="margin-left: 8px;">
+                            {{ lead.icp_score }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {% if lead.funding_amount or lead.location %}
+                    <div class="kanban-card-meta">
+                        {% if lead.funding_amount %}
+                        <span><i class="fas fa-dollar-sign" style="color: #10b981;"></i>{{ lead.funding_amount }}</span>
+                        {% endif %}
+                        {% if lead.location %}
+                        <span><i class="fas fa-map-marker-alt" style="color: #ef4444;"></i>{{ lead.location|truncate_text(15) }}</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    {% if lead.founders %}
+                    <div class="kanban-card-founders">
+                        <i class="fas fa-user" style="color: #8b5cf6;"></i>
+                        <span>{{ lead.founders|truncate_text(20) }}</span>
+                    </div>
+                    {% endif %}
+
+                    {% if lead.conversation_started_at %}
+                    <div class="kanban-card-date">
+                        <i class="fas fa-clock"></i> Started {{ lead.conversation_started_at|format_date }}
+                    </div>
+                    {% endif %}
+                </a>
+
+                <div class="kanban-card-actions">
+                    {% if lead.website %}
+                    <a href="{{ lead.website if lead.website.startswith('http') else 'https://' + lead.website }}" target="_blank" rel="noopener" class="card-action-link" onclick="event.stopPropagation();" title="Visit website">
+                        <i class="fas fa-globe"></i>
+                    </a>
+                    {% endif %}
+                    {% if lead.social_links and 'linkedin' in (lead.social_links|lower) %}
+                    <a href="{{ lead.social_links }}" target="_blank" rel="noopener" class="card-action-link linkedin" onclick="event.stopPropagation();" title="View LinkedIn">
+                        <i class="fab fa-linkedin"></i>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+
+            {% if not pipeline_data_post[stage.name] %}
+            <div class="kanban-empty">
+                <i class="fas fa-inbox"></i>
+                <p>No leads</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<style>
+/* Tracker Tabs */
+.tracker-tabs {
+    display: flex;
+    gap: 8px;
+    margin-top: 24px;
+    margin-bottom: 20px;
+}
+
+.tracker-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font);
+    text-decoration: none;
+}
+
+.tracker-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.tracker-tab.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.tracker-tab i {
+    font-size: 14px;
+}
+
+.tracker-count {
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    background: var(--bg-hover);
+}
+
+.tracker-tab.active .tracker-count {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+/* Kanban Board */
+.kanban-board {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 16px;
+}
+
+.kanban-board.hidden {
+    display: none;
+}
+
+.kanban-column {
+    flex-shrink: 0;
+    width: 240px;
+}
+
+.kanban-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    margin-bottom: 12px;
+}
+
+.kanban-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.kanban-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.kanban-count {
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    border-radius: 100px;
+}
+
+.kanban-cards {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    min-height: 500px;
+}
+
+.kanban-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    cursor: move;
+    transition: all 0.15s ease;
+    overflow: hidden;
+}
+
+.kanban-card:hover {
+    background: var(--bg-hover);
+    border-color: #3f3f46;
+    transform: translateY(-1px);
+}
+
+.kanban-card.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+}
+
+.kanban-card-link {
+    display: block;
+    padding: 12px;
+    text-decoration: none;
+    color: inherit;
+}
+
+.kanban-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kanban-card-tags {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kanban-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.kanban-card-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.kanban-card-meta i {
+    font-size: 10px;
+}
+
+.kanban-card-date {
+    margin-top: 10px;
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.kanban-card-date i {
+    font-size: 9px;
+}
+
+/* Start Conversation Button */
+.start-convo-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(16, 185, 129, 0.1);
+    border: none;
+    border-top: 1px solid var(--border);
+    color: #10b981;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font);
+}
+
+.start-convo-btn:hover {
+    background: rgba(16, 185, 129, 0.2);
+}
+
+.start-convo-btn i {
+    font-size: 10px;
+}
+
+/* Founders Info */
+.kanban-card-founders {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.kanban-card-founders i {
+    font-size: 10px;
+}
+
+/* Card Actions Row */
+.kanban-card-actions {
+    display: flex;
+    border-top: 1px solid var(--border);
+}
+
+.card-action-link {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    font-size: 12px;
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.card-action-link:hover {
+    background: rgba(59, 130, 246, 0.2);
+    text-decoration: none;
+}
+
+.card-action-link.linkedin {
+    background: rgba(0, 119, 181, 0.1);
+    color: #0077b5;
+    border-left: 1px solid var(--border);
+}
+
+.card-action-link.linkedin:hover {
+    background: rgba(0, 119, 181, 0.2);
+}
+
+.card-action-link i {
+    font-size: 12px;
+}
+
+.kanban-empty {
+    text-align: center;
+    padding: 30px 15px;
+    color: var(--text-tertiary);
+}
+
+.kanban-empty i {
+    font-size: 20px;
+    opacity: 0.5;
+    margin-bottom: 8px;
+}
+
+.kanban-empty p {
+    font-size: 11px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Track current tracker
+let currentTracker = '{{ current_tracker }}';
+
+function switchTracker(tracker) {
+    currentTracker = tracker;
+
+    // Update tab styles
+    document.querySelectorAll('.tracker-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tracker === tracker);
+    });
+
+    // Show/hide boards
+    document.getElementById('kanban-pre').classList.toggle('hidden', tracker !== 'pre');
+    document.getElementById('kanban-post').classList.toggle('hidden', tracker !== 'post');
+
+    // Update URL without reload
+    const url = new URL(window.location);
+    url.searchParams.set('tracker', tracker);
+    window.history.replaceState({}, '', url);
+}
+
+function kanban(trackerType) {
+    return {
+        draggedId: null,
+        tracker: trackerType,
+
+        handleDragStart(event, leadId) {
+            this.draggedId = leadId;
+            event.target.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+        },
+
+        handleDragEnd(event) {
+            event.target.classList.remove('dragging');
+            this.draggedId = null;
+        },
+
+        async handleDrop(event, stage) {
+            event.preventDefault();
+            if (this.draggedId) {
+                const endpoint = this.tracker === 'pre'
+                    ? `/api/leads/${this.draggedId}/stage/pre`
+                    : `/api/leads/${this.draggedId}/stage/post`;
+
+                try {
+                    await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stage })
+                    });
+                    showToast(`Moved to ${stage.replace(/_/g, ' ')}`);
+                    setTimeout(() => location.reload(), 500);
+                } catch (e) {
+                    showToast('Failed to update stage', 'error');
+                }
+            }
+        }
+    }
+}
+
+async function startConversation(leadId) {
+    try {
+        await fetch(`/api/leads/${leadId}/start-conversation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        showToast('Moved to Post-Conversation!');
+        setTimeout(() => {
+            switchTracker('post');
+            location.reload();
+        }, 500);
+    } catch (e) {
+        showToast('Failed to start conversation', 'error');
+    }
+}
+
+// Initialize correct tracker on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tracker = urlParams.get('tracker') || 'pre';
+    if (tracker !== 'pre') {
+        switchTracker(tracker);
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,63 @@
+<!-- Logo -->
+<div class="flex h-16 shrink-0 items-center">
+    <span class="text-2xl font-bold gradient-text">ICP CRM</span>
+</div>
+
+<!-- Navigation -->
+<nav class="flex flex-1 flex-col">
+    <ul role="list" class="flex flex-1 flex-col gap-y-7">
+        <li>
+            <ul role="list" class="-mx-2 space-y-1">
+                <li>
+                    <a href="{{ url_for('dashboard') }}"
+                       class="{% if request.endpoint == 'dashboard' %}bg-indigo-500/20 text-indigo-400{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %} group flex gap-x-3 rounded-lg p-2.5 text-sm leading-6 font-medium transition-all">
+                        <i class="fas fa-chart-line h-5 w-5 shrink-0 mt-0.5"></i>
+                        Dashboard
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('leads_list') }}"
+                       class="{% if request.endpoint == 'leads_list' %}bg-indigo-500/20 text-indigo-400{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %} group flex gap-x-3 rounded-lg p-2.5 text-sm leading-6 font-medium transition-all">
+                        <i class="fas fa-building h-5 w-5 shrink-0 mt-0.5"></i>
+                        All Leads
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('pipeline') }}"
+                       class="{% if request.endpoint == 'pipeline' %}bg-indigo-500/20 text-indigo-400{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %} group flex gap-x-3 rounded-lg p-2.5 text-sm leading-6 font-medium transition-all">
+                        <i class="fas fa-columns h-5 w-5 shrink-0 mt-0.5"></i>
+                        Pipeline
+                    </a>
+                </li>
+            </ul>
+        </li>
+
+        <!-- Pipeline stages quick links -->
+        <li>
+            <div class="text-xs font-semibold leading-6 text-gray-500 uppercase tracking-wider">Pipeline Stages</div>
+            <ul role="list" class="-mx-2 mt-2 space-y-1">
+                {% for stage in stages|default([]) %}
+                <li>
+                    <a href="{{ url_for('leads_list', stage=stage.name) }}"
+                       class="text-gray-400 hover:text-white hover:bg-gray-800 group flex gap-x-3 rounded-lg p-2.5 text-sm leading-6 transition-all">
+                        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-medium"
+                              style="background-color: {{ stage.color }}20; color: {{ stage.color }}">
+                            {{ stats.by_stage.get(stage.name, 0) if stats else 0 }}
+                        </span>
+                        <span class="truncate capitalize">{{ stage.name }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </li>
+
+        <!-- Settings -->
+        <li class="mt-auto">
+            <a href="{{ url_for('settings') }}"
+               class="{% if request.endpoint == 'settings' %}bg-indigo-500/20 text-indigo-400{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %} group -mx-2 flex gap-x-3 rounded-lg p-2.5 text-sm font-medium leading-6 transition-all">
+                <i class="fas fa-cog h-5 w-5 shrink-0 mt-0.5"></i>
+                Settings
+            </a>
+        </li>
+    </ul>
+</nav>

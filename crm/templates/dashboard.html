@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - ICP CRM{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">Overview of your lead pipeline</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Leads</div>
+        <div class="stat-value">{{ "{:,}".format(stats.total) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Awaiting Response</div>
+        <div class="stat-value" style="color: #f59e0b;">{{ stats.awaiting_response }}</div>
+        <div class="stat-change">
+            <i class="fas fa-clock"></i>
+            DM sent / Follow-ups
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">In Conversation</div>
+        <div class="stat-value" style="color: var(--accent);">{{ stats.in_conversation }}</div>
+        <div class="stat-change">
+            <i class="fas fa-comments"></i>
+            Active discussions
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Deals Won</div>
+        <div class="stat-value text-success">{{ stats.deals_won }}</div>
+        <div class="stat-change">
+            <i class="fas fa-check-circle"></i>
+            Paid
+        </div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Pre-Conversation Pipeline -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-paper-plane" style="color: #3b82f6; margin-right: 8px;"></i>Pre-Conversation</span>
+            <a href="{{ url_for('pipeline', tracker='pre') }}" class="btn btn-ghost" style="height: 28px; padding: 0 10px; font-size: 12px;">
+                View
+            </a>
+        </div>
+        <div class="card-body">
+            {% set total_pre = stats.by_stage_pre.values()|sum if stats.by_stage_pre else 1 %}
+            {% set total_pre = total_pre if total_pre > 0 else 1 %}
+            {% for stage in stages_pre %}
+            {% set count = stats.by_stage_pre.get(stage.name, 0) %}
+            {% set pct = (count / total_pre * 100)|round(1) %}
+            <div style="margin-bottom: 14px;">
+                <div class="flex items-center justify-between" style="margin-bottom: 5px;">
+                    <div class="flex items-center" style="gap: 8px;">
+                        <span class="kanban-dot" style="background: {{ stage.color }}"></span>
+                        <span style="font-size: 12px;">{{ stage.name|replace('_', ' ')|title }}</span>
+                    </div>
+                    <span style="font-size: 12px; color: var(--text-tertiary);">{{ count }}</span>
+                </div>
+                <div class="progress">
+                    <div class="progress-bar" style="width: {{ pct }}%; background: {{ stage.color }};"></div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Post-Conversation Pipeline -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-comments" style="color: #10b981; margin-right: 8px;"></i>Post-Conversation</span>
+            <a href="{{ url_for('pipeline', tracker='post') }}" class="btn btn-ghost" style="height: 28px; padding: 0 10px; font-size: 12px;">
+                View
+            </a>
+        </div>
+        <div class="card-body">
+            {% set total_post = stats.by_stage_post.values()|sum if stats.by_stage_post else 1 %}
+            {% set total_post = total_post if total_post > 0 else 1 %}
+            {% for stage in stages_post %}
+            {% set count = stats.by_stage_post.get(stage.name, 0) %}
+            {% set pct = (count / total_post * 100)|round(1) %}
+            <div style="margin-bottom: 14px;">
+                <div class="flex items-center justify-between" style="margin-bottom: 5px;">
+                    <div class="flex items-center" style="gap: 8px;">
+                        <span class="kanban-dot" style="background: {{ stage.color }}"></span>
+                        <span style="font-size: 12px;">{{ stage.name|replace('_', ' ')|title }}</span>
+                    </div>
+                    <span style="font-size: 12px; color: var(--text-tertiary);">{{ count }}</span>
+                </div>
+                <div class="progress">
+                    <div class="progress-bar" style="width: {{ pct }}%; background: {{ stage.color }};"></div>
+                </div>
+            </div>
+            {% endfor %}
+
+            {% if not stats.by_stage_post %}
+            <div class="empty-state" style="padding: 24px;">
+                <i class="fas fa-comments"></i>
+                <p>No active conversations yet</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="grid-2 mt-6">
+    <!-- Top Leads -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Top Leads</span>
+            <a href="{{ url_for('leads_list') }}" class="btn btn-ghost" style="height: 28px; padding: 0 10px; font-size: 12px;">
+                View All
+            </a>
+        </div>
+        <div>
+            {% for lead in recent_leads[:8] %}
+            <a href="{{ url_for('lead_detail', lead_id=lead.id) }}" class="lead-row" style="text-decoration: none;">
+                <div class="avatar avatar-sm">{{ lead.company_name[0]|upper if lead.company_name else '?' }}</div>
+                <div class="lead-info">
+                    <div class="lead-name">{{ lead.company_name }}</div>
+                    <div class="lead-meta">{{ lead.industry_tags|truncate_text(35) if lead.industry_tags else lead.location or '' }}</div>
+                </div>
+                {% if lead.icp_score %}
+                <span class="lead-score {% if lead.icp_score >= 70 %}score-high{% elif lead.icp_score >= 50 %}score-medium{% else %}score-low{% endif %}">
+                    {{ lead.icp_score }}
+                </span>
+                {% endif %}
+            </a>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-building"></i>
+                <p>No leads yet</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Activity</span>
+        </div>
+        <div class="card-body">
+            {% for activity in recent_activities[:6] %}
+            <div class="activity-item">
+                <div class="activity-icon {% if activity.type == 'note' %}note{% else %}stage{% endif %}">
+                    <i class="fas {% if activity.type == 'note' %}fa-sticky-note{% else %}fa-exchange-alt{% endif %}"></i>
+                </div>
+                <div class="activity-content">
+                    <div class="activity-text">
+                        <a href="{{ url_for('lead_detail', lead_id=activity.lead_id) }}">{{ activity.company_name }}</a>
+                        <span style="color: var(--text-tertiary);">{{ activity.content|truncate_text(30) }}</span>
+                    </div>
+                    <div class="activity-time">{{ activity.created_at|format_date }}</div>
+                </div>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-history"></i>
+                <p>No activity yet</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Pending Tasks -->
+{% if pending_tasks %}
+<div class="card mt-6">
+    <div class="card-header">
+        <span class="card-title">Tasks</span>
+        <span class="badge badge-warning">{{ pending_tasks|length }}</span>
+    </div>
+    <div class="card-body">
+        {% for task in pending_tasks %}
+        <div class="flex items-center" style="padding: 10px 0; border-bottom: 1px solid var(--border-light); gap: 12px;">
+            <button onclick="completeTask({{ task.id }})" class="btn btn-ghost btn-icon" style="width: 28px; height: 28px;">
+                <i class="far fa-circle"></i>
+            </button>
+            <div style="flex: 1;">
+                <div style="font-size: 13px; font-weight: 500;">{{ task.title }}</div>
+                {% if task.company_name %}
+                <div style="font-size: 12px; color: var(--text-tertiary);">{{ task.company_name }}</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
