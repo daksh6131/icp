@@ -346,7 +346,8 @@ class Lead:
 
     @staticmethod
     def get_all(stage: str = None, tracker: str = None, search: str = None,
-                source: str = None, sort: str = None, sort_dir: str = 'desc',
+                source: str = None, enriched_range: str = None,
+                sort: str = None, sort_dir: str = 'desc',
                 limit: int = 100, offset: int = 0) -> List[dict]:
         """Get all leads with optional filtering by stage, tracker, and source.
 
@@ -388,6 +389,14 @@ class Lead:
             search_param = f"%{search}%"
             params.extend([search_param, search_param, search_param])
 
+        # Filter by enrichment/created date
+        if enriched_range == 'today':
+            query += " AND datetime(created_at) >= datetime('now', 'localtime', 'start of day')"
+        elif enriched_range == '7d':
+            query += " AND datetime(created_at) >= datetime('now', 'localtime', '-7 days')"
+        elif enriched_range == '30d':
+            query += " AND datetime(created_at) >= datetime('now', 'localtime', '-30 days')"
+
         # Sorting - whitelist valid columns to prevent SQL injection
         valid_sort_columns = {
             'company_name': 'company_name',
@@ -396,6 +405,7 @@ class Lead:
             'priority': 'priority',
             'icp_score': 'icp_score',
             'created_at': 'created_at',
+            'updated_at': 'updated_at',
         }
 
         sort_column = valid_sort_columns.get(sort, 'icp_score')

@@ -185,7 +185,8 @@ def leads_list():
     tracker = request.args.get('tracker', 'pre')  # pre or post
     search = request.args.get('search', '')
     source = request.args.get('source', 'all')
-    sort = request.args.get('sort', 'icp_score')
+    enriched_range = request.args.get('enriched', 'all')
+    sort = request.args.get('sort', 'created_at')
     sort_dir = request.args.get('sort_dir', 'desc')
     page = int(request.args.get('page', 1))
     per_page = 50
@@ -195,6 +196,7 @@ def leads_list():
         tracker=tracker,
         search=search if search else None,
         source=source if source != 'all' else None,
+        enriched_range=enriched_range if enriched_range != 'all' else None,
         sort=sort,
         sort_dir=sort_dir,
         limit=per_page,
@@ -216,6 +218,7 @@ def leads_list():
         current_stage=stage,
         current_tracker=tracker,
         current_source=source,
+        current_enriched_range=enriched_range,
         current_sort=sort,
         current_sort_dir=sort_dir,
         search=search,
@@ -543,7 +546,8 @@ def api_list_leads():
     tracker = request.args.get('tracker', 'pre')
     search = request.args.get('search', '')
     source = request.args.get('source', 'all')
-    sort = request.args.get('sort', 'icp_score')
+    enriched_range = request.args.get('enriched', 'all')
+    sort = request.args.get('sort', 'created_at')
     sort_dir = request.args.get('sort_dir', 'desc')
     page = int(request.args.get('page', 1))
     per_page = 50
@@ -553,6 +557,7 @@ def api_list_leads():
         tracker=tracker,
         search=search if search else None,
         source=source if source != 'all' else None,
+        enriched_range=enriched_range if enriched_range != 'all' else None,
         sort=sort,
         sort_dir=sort_dir,
         limit=per_page,
@@ -569,6 +574,7 @@ def api_list_leads():
         'tracker': tracker,
         'stage': stage,
         'source': source,
+        'enriched': enriched_range,
         'sort': sort,
         'sort_dir': sort_dir,
         'page': page

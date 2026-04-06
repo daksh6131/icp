@@ -39,7 +39,24 @@
     </button>
     {% endfor %}
 
-    <!-- Source Filter Dropdown -->
+    <div class="source-filter-wrapper">
+        <select id="enrichedFilter" class="source-filter-select" onchange="switchEnriched(this.value)">
+            <option value="all" {% if current_enriched_range == 'all' %}selected{% endif %}>All Enriched Dates</option>
+            <option value="today" {% if current_enriched_range == 'today' %}selected{% endif %}>Enriched Today</option>
+            <option value="7d" {% if current_enriched_range == '7d' %}selected{% endif %}>Last 7 Days</option>
+            <option value="30d" {% if current_enriched_range == '30d' %}selected{% endif %}>Last 30 Days</option>
+        </select>
+    </div>
+
+    <div class="source-filter-wrapper">
+        <select id="sortPreset" class="source-filter-select" onchange="switchSortPreset(this.value)">
+            <option value="created_at:desc" {% if current_sort == 'created_at' and current_sort_dir == 'desc' %}selected{% endif %}>Latest Enriched</option>
+            <option value="created_at:asc" {% if current_sort == 'created_at' and current_sort_dir == 'asc' %}selected{% endif %}>Oldest Enriched</option>
+            <option value="icp_score:desc" {% if current_sort == 'icp_score' and current_sort_dir == 'desc' %}selected{% endif %}>Highest Score</option>
+            <option value="company_name:asc" {% if current_sort == 'company_name' and current_sort_dir == 'asc' %}selected{% endif %}>Company A-Z</option>
+        </select>
+    </div>
+
     <div class="source-filter-wrapper">
         <select id="sourceFilter" class="source-filter-select" onchange="switchSource(this.value)">
             <option value="all" {% if current_source == 'all' %}selected{% endif %}>All Sources</option>
@@ -2132,19 +2149,32 @@ let currentLeadId = null;
 const stages = {{ stages|tojson|safe }};
 const stagesPre = {{ stages_pre|tojson|safe }};
 const stagesPost = {{ stages_post|tojson|safe }};
+const sourcesList = {{ sources|tojson|safe }};
 let currentTracker = '{{ current_tracker }}';
 let currentStage = '{{ current_stage }}';
 let currentSource = '{{ current_source }}';
-let currentSort = '{{ current_sort|default("icp_score") }}';
+let currentEnrichedRange = '{{ current_enriched_range|default("all") }}';
+let currentSort = '{{ current_sort|default("created_at") }}';
 let currentSortDir = '{{ current_sort_dir|default("desc") }}';
 let isLoading = false;
 
+function buildLeadsQuery({ tracker = currentTracker, stage = currentStage, source = currentSource, enriched = currentEnrichedRange, sort = currentSort, sortDir = currentSortDir } = {}) {
+    const params = new URLSearchParams({
+        tracker,
+        stage,
+        sort,
+        sort_dir: sortDir,
+    });
+
+    if (source && source !== 'all') params.set('source', source);
+    if (enriched && enriched !== 'all') params.set('enriched', enriched);
+
+    return `/api/leads?${params.toString()}`;
+}
+
 // Initialize sort icons on page load
 document.addEventListener('DOMContentLoaded', function() {
-    const activeHeader = document.querySelector(`.data-table th[data-sort="${currentSort}"]`);
-    if (activeHeader) {
-        activeHeader.classList.add(currentSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
-    }
+    syncSortHeaders();
 });
 
 // Stage colors for rendering
@@ -2375,7 +2405,7 @@ function cancelStageDrag() {
 
 async function refreshCurrentView() {
     try {
-        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}`);
+        const res = await fetch(buildLeadsQuery());
         const data = await res.json();
         renderLeadsTable(data.leads);
         renderStageFilters(data.stages, data.stats);
@@ -2412,8 +2442,7 @@ async function switchTracker(tracker) {
     currentStage = 'all';
 
     try {
-        const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
-        const res = await fetch(`/api/leads?tracker=${tracker}&stage=all${sourceParam}`);
+        const res = await fetch(buildLeadsQuery({ tracker, stage: 'all' }));
         const data = await res.json();
         renderLeadsTable(data.leads);
         renderStageFilters(data.stages, data.stats);
@@ -2440,8 +2469,7 @@ async function switchStage(stage) {
     currentStage = stage;
 
     try {
-        const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
-        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${stage}${sourceParam}`);
+        const res = await fetch(buildLeadsQuery({ stage }));
         const data = await res.json();
         renderLeadsTable(data.leads);
         updateURL();
@@ -2463,13 +2491,62 @@ async function switchSource(source) {
     currentSource = source;
 
     try {
-        const sourceParam = source !== 'all' ? `&source=${source}` : '';
-        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}${sourceParam}&sort=${currentSort}&sort_dir=${currentSortDir}`);
+        const res = await fetch(buildLeadsQuery({ source }));
         const data = await res.json();
         renderLeadsTable(data.leads);
         updateURL();
     } catch (e) {
         showToast('Failed to load leads', 'error');
+    } finally {
+        isLoading = false;
+    }
+}
+
+async function switchEnriched(enriched) {
+    if (isLoading || enriched === currentEnrichedRange) return;
+    isLoading = true;
+
+    const tbody = document.querySelector('.data-table tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
+
+    currentEnrichedRange = enriched;
+    currentSort = 'created_at';
+    currentSortDir = 'desc';
+
+    try {
+        const res = await fetch(buildLeadsQuery({ enriched, sort: 'created_at', sortDir: 'desc' }));
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+        syncSortHeaders();
+        updateSortPresetControl();
+        updateURL();
+    } catch (e) {
+        showToast('Failed to load leads', 'error');
+    } finally {
+        isLoading = false;
+    }
+}
+
+async function switchSortPreset(value) {
+    const [sort, sortDir] = value.split(':');
+    if (isLoading || (sort === currentSort && sortDir === currentSortDir)) return;
+
+    isLoading = true;
+    currentSort = sort;
+    currentSortDir = sortDir;
+
+    const tbody = document.querySelector('.data-table tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
+
+    try {
+        const res = await fetch(buildLeadsQuery({ sort, sortDir }));
+        const data = await res.json();
+        renderLeadsTable(data.leads);
+        syncSortHeaders();
+        updateSortPresetControl();
+        updateURL();
+    } catch (e) {
+        showToast('Failed to sort leads', 'error');
     } finally {
         isLoading = false;
     }
@@ -2487,23 +2564,18 @@ async function sortBy(field) {
     }
 
     // Update header icons
-    document.querySelectorAll('.data-table th.sortable').forEach(th => {
-        th.classList.remove('sort-asc', 'sort-desc');
-    });
-    const activeHeader = document.querySelector(`.data-table th[data-sort="${field}"]`);
-    if (activeHeader) {
-        activeHeader.classList.add(currentSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
-    }
+    syncSortHeaders();
 
     isLoading = true;
     const tbody = document.querySelector('.data-table tbody');
     tbody.innerHTML = `<tr><td colspan="9" class="empty-cell"><div class="panel-loading"><i class="fas fa-spinner fa-spin"></i><span>Loading...</span></div></td></tr>`;
 
     try {
-        const sourceParam = currentSource !== 'all' ? `&source=${currentSource}` : '';
-        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}${sourceParam}&sort=${currentSort}&sort_dir=${currentSortDir}`);
+        const res = await fetch(buildLeadsQuery());
         const data = await res.json();
         renderLeadsTable(data.leads);
+        updateURL();
+        updateSortPresetControl();
     } catch (e) {
         showToast('Failed to sort leads', 'error');
     } finally {
@@ -2597,14 +2669,40 @@ function renderStageFilters(stages, stats) {
     const stageCounts = currentTracker === 'pre' ? (stats.by_stage_pre || {}) : (stats.by_stage_post || {});
     const total = Object.values(stageCounts).reduce((a, b) => a + b, 0);
 
-    let html = `<button type="button" class="filter-btn active" data-stage="all" onclick="switchStage('all')">All<span class="filter-count">${total}</span></button>`;
+    let html = `<button type="button" class="filter-btn ${currentStage === 'all' ? 'active' : ''}" data-stage="all" onclick="switchStage('all')">All<span class="filter-count">${total}</span></button>`;
 
     stages.forEach(stage => {
         const count = stageCounts[stage.name] || 0;
-        html += `<button type="button" class="filter-btn" data-stage="${stage.name}" style="--filter-color: ${stage.color};" onclick="switchStage('${stage.name}')">${formatStage(stage.name)}${count > 0 ? `<span class="filter-count">${count}</span>` : ''}</button>`;
+        html += `<button type="button" class="filter-btn ${currentStage === stage.name ? 'active' : ''}" data-stage="${stage.name}" style="--filter-color: ${stage.color};" onclick="switchStage('${stage.name}')">${formatStage(stage.name)}${count > 0 ? `<span class="filter-count">${count}</span>` : ''}</button>`;
     });
 
+    html += `
+        <div class="source-filter-wrapper">
+            <select id="enrichedFilter" class="source-filter-select" onchange="switchEnriched(this.value)">
+                <option value="all" ${currentEnrichedRange === 'all' ? 'selected' : ''}>All Enriched Dates</option>
+                <option value="today" ${currentEnrichedRange === 'today' ? 'selected' : ''}>Enriched Today</option>
+                <option value="7d" ${currentEnrichedRange === '7d' ? 'selected' : ''}>Last 7 Days</option>
+                <option value="30d" ${currentEnrichedRange === '30d' ? 'selected' : ''}>Last 30 Days</option>
+            </select>
+        </div>
+        <div class="source-filter-wrapper">
+            <select id="sortPreset" class="source-filter-select" onchange="switchSortPreset(this.value)">
+                <option value="created_at:desc">Latest Enriched</option>
+                <option value="created_at:asc">Oldest Enriched</option>
+                <option value="icp_score:desc">Highest Score</option>
+                <option value="company_name:asc">Company A-Z</option>
+            </select>
+        </div>
+        <div class="source-filter-wrapper">
+            <select id="sourceFilter" class="source-filter-select" onchange="switchSource(this.value)">
+                <option value="all" ${currentSource === 'all' ? 'selected' : ''}>All Sources</option>
+                ${sourcesList.map(src => `<option value="${escapeHtml(src.name)}" ${currentSource === src.name ? 'selected' : ''}>${escapeHtml(src.name)} (${src.count})</option>`).join('')}
+            </select>
+        </div>
+    `;
+
     container.innerHTML = html;
+    updateSortPresetControl();
 
     // Update counts in tracker tabs
     const preTotal = Object.values(stats.by_stage_pre || {}).reduce((a, b) => a + b, 0);
@@ -2626,7 +2724,32 @@ function updateURL() {
     } else {
         url.searchParams.delete('source');
     }
+    if (currentEnrichedRange !== 'all') {
+        url.searchParams.set('enriched', currentEnrichedRange);
+    } else {
+        url.searchParams.delete('enriched');
+    }
+    url.searchParams.set('sort', currentSort);
+    url.searchParams.set('sort_dir', currentSortDir);
     history.replaceState({}, '', url);
+}
+
+function updateSortPresetControl() {
+    const sortPreset = document.getElementById('sortPreset');
+    if (sortPreset) {
+        sortPreset.value = `${currentSort}:${currentSortDir}`;
+    }
+}
+
+function syncSortHeaders() {
+    document.querySelectorAll('.data-table th.sortable').forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+    });
+
+    const activeHeader = document.querySelector(`.data-table th[data-sort="${currentSort}"]`);
+    if (activeHeader) {
+        activeHeader.classList.add(currentSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
 }
 
 function formatStage(stage) {
@@ -2717,7 +2840,7 @@ function handleStageChangeInTable(leadId, newStage, tracker) {
 
 async function refreshStageCounts() {
     try {
-        const res = await fetch(`/api/leads?tracker=${currentTracker}&stage=all`);
+        const res = await fetch(buildLeadsQuery({ stage: 'all' }));
         const data = await res.json();
 
         // Update filter counts
@@ -3329,7 +3452,7 @@ async function savePanelChanges() {
         document.getElementById('panelCompanyName').textContent = updates.company_name;
 
         // Refresh table to show updated data
-        const res2 = await fetch(`/api/leads?tracker=${currentTracker}&stage=${currentStage}`);
+        const res2 = await fetch(buildLeadsQuery());
         const data = await res2.json();
         renderLeadsTable(data.leads);
 
