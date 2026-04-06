@@ -25,6 +25,7 @@ from crm.models import get_db
 
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "").strip() or "http://localhost:8080"
 
 
 def get_scrape_summary():
@@ -85,7 +86,7 @@ def format_slack_message(summary, scrape_results=None):
         f"|---------|---------|-------|-----|--------|\n"
         f"{leads_table}\n"
         f"---\n\n"
-        f"> Portal: http://localhost:8080"
+        f"> Portal: {DASHBOARD_URL}"
     )
     return msg
 

@@ -115,7 +115,7 @@ def _post_to_slack_response_url(response_url: str, text: str, in_channel: bool =
         return False
 
 
-def _format_slack_trigger_report(result: dict) -> str:
+def _format_slack_trigger_report(result: dict, dashboard_url: str = "") -> str:
     """Build a concise scrape report for Slack replies."""
     lines = [
         "*ICP scrape finished*",
@@ -137,6 +137,9 @@ def _format_slack_trigger_report(result: dict) -> str:
             )
     else:
         lines.append("\nNo new leads imported this run.")
+
+    if dashboard_url:
+        lines.append(f"\nDashboard: {dashboard_url}")
 
     return "\n".join(lines)
 
@@ -712,6 +715,8 @@ def slack_command_webhook():
             "text": "A scrape is already running. Please wait for it to complete."
         })
 
+    dashboard_url = config.DASHBOARD_URL.strip() or request.host_url.rstrip("/")
+
     def run_agent_from_slash_command():
         try:
             app._agent_running = True
@@ -721,7 +726,7 @@ def slack_command_webhook():
             app._agent_last_result = result
             _post_to_slack_response_url(
                 response_url,
-                _format_slack_trigger_report(result),
+                _format_slack_trigger_report(result, dashboard_url=dashboard_url),
                 in_channel=True
             )
         except Exception as exc:
@@ -811,6 +816,8 @@ def slack_events_webhook():
         thread_ts=thread_ts
     )
 
+    dashboard_url = config.DASHBOARD_URL.strip() or request.host_url.rstrip("/")
+
     def run_agent_from_slack():
         try:
             app._agent_running = True
@@ -820,7 +827,7 @@ def slack_events_webhook():
             app._agent_last_result = result
             _post_slack_message(
                 channel,
-                _format_slack_trigger_report(result),
+                _format_slack_trigger_report(result, dashboard_url=dashboard_url),
                 thread_ts=thread_ts
             )
         except Exception as exc:

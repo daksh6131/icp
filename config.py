@@ -47,6 +47,7 @@ class Config:
     SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
     SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
     SLACK_TRIGGER_CHANNEL_ID = os.getenv("SLACK_TRIGGER_CHANNEL_ID", "")
+    DASHBOARD_URL = os.getenv("DASHBOARD_URL", "")
 
     # Data Sources
     TECHCRUNCH_RSS_URL = "https://techcrunch.com/tag/fundraising/feed/"
