@@ -44,6 +44,9 @@ class Config:
 
     # Notifications (optional)
     SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+    SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+    SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
+    SLACK_TRIGGER_CHANNEL_ID = os.getenv("SLACK_TRIGGER_CHANNEL_ID", "")
 
     # Data Sources
     TECHCRUNCH_RSS_URL = "https://techcrunch.com/tag/fundraising/feed/"

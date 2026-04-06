@@ -2,17 +2,143 @@
 Flask CRM application for managing ICP leads with dual-tracker support.
 """
 
+import hashlib
+import hmac
+import threading
+import time
 import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import requests
 from flask import Flask, render_template, request, jsonify, redirect, url_for
+from config import config
 from crm.models import Lead, Activity, Task, PipelineStage, ScrapingSource, get_db, get_dashboard_data, close_db, reset_db_connection
+from utils import get_logger
 
 app = Flask(__name__)
 app.secret_key = 'icp-crm-secret-key'
+logger = get_logger("crm.app")
+
+
+def _verify_slack_signature(payload: bytes, timestamp: str, signature: str) -> bool:
+    """Verify Slack request signature (v0)."""
+    if not config.SLACK_SIGNING_SECRET:
+        return False
+    if not timestamp or not signature:
+        return False
+    try:
+        # Reject replayed requests older than 5 minutes.
+        if abs(time.time() - int(timestamp)) > 60 * 5:
+            return False
+    except ValueError:
+        return False
+
+    basestring = f"v0:{timestamp}:{payload.decode('utf-8')}"
+    computed = "v0=" + hmac.new(
+        config.SLACK_SIGNING_SECRET.encode("utf-8"),
+        basestring.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(computed, signature)
+
+
+def _is_duplicate_slack_event(event_id: str) -> bool:
+    """Best-effort dedupe for Slack retries."""
+    if not event_id:
+        return False
+    now = time.time()
+    cache = getattr(app, "_slack_event_cache", {})
+
+    # Drop old IDs to keep memory bounded.
+    expired = [eid for eid, ts in cache.items() if now - ts > 600]
+    for eid in expired:
+        cache.pop(eid, None)
+
+    duplicate = event_id in cache
+    cache[event_id] = now
+    app._slack_event_cache = cache
+    return duplicate
+
+
+def _post_slack_message(channel: str, text: str, thread_ts: str = None) -> bool:
+    """Post a message via Slack Web API chat.postMessage."""
+    if not config.SLACK_BOT_TOKEN:
+        logger.error("SLACK_BOT_TOKEN not configured; cannot send Slack reply")
+        return False
+
+    payload = {
+        "channel": channel,
+        "text": text,
+        "mrkdwn": True,
+    }
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+
+    try:
+        resp = requests.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={
+                "Authorization": f"Bearer {config.SLACK_BOT_TOKEN}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            json=payload,
+            timeout=15,
+        )
+        data = resp.json()
+        if not data.get("ok"):
+            logger.error(f"Slack chat.postMessage failed: {data}")
+            return False
+        return True
+    except Exception as exc:
+        logger.error(f"Slack chat.postMessage request failed: {exc}")
+        return False
+
+
+def _post_to_slack_response_url(response_url: str, text: str, in_channel: bool = False) -> bool:
+    """Post a message to a Slack slash-command response_url."""
+    if not response_url:
+        return False
+
+    payload = {
+        "text": text,
+        "mrkdwn": True,
+        "response_type": "in_channel" if in_channel else "ephemeral",
+    }
+    try:
+        resp = requests.post(response_url, json=payload, timeout=15)
+        return 200 <= resp.status_code < 300
+    except Exception as exc:
+        logger.error(f"Slack response_url request failed: {exc}")
+        return False
+
+
+def _format_slack_trigger_report(result: dict) -> str:
+    """Build a concise scrape report for Slack replies."""
+    lines = [
+        "*ICP scrape finished*",
+        f"• Scraped: *{result.get('scraped', 0)}*",
+        f"• Filtered: *{result.get('filtered', 0)}*",
+        f"• Imported: *{result.get('imported', 0)}*",
+        f"• Skipped: *{result.get('skipped', 0)}*",
+        f"• Errors: *{result.get('errors', 0)}*",
+    ]
+
+    leads = (result.get("leads") or [])[:5]
+    if leads:
+        lines.append("\n*New Imports*")
+        for lead in leads:
+            lines.append(
+                f"• {lead.get('company_name', 'Unknown')} "
+                f"({lead.get('funding_amount', 'N/A')}) "
+                f"{lead.get('icp_tag', '')}"
+            )
+    else:
+        lines.append("\nNo new leads imported this run.")
+
+    return "\n".join(lines)
 
 
 @app.teardown_appcontext
@@ -549,6 +675,168 @@ def api_toggle_source(source_id):
 
 # ============== CAL.COM INTEGRATION ==============
 
+@app.route('/webhooks/slack/command', methods=['POST'])
+def slack_command_webhook():
+    """Handle Slack slash command trigger (e.g. /scrape)."""
+    if not config.SLACK_SIGNING_SECRET:
+        return jsonify({'error': 'SLACK_SIGNING_SECRET not configured'}), 503
+
+    payload_bytes = request.get_data()
+    slack_signature = request.headers.get("X-Slack-Signature", "")
+    slack_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    if not _verify_slack_signature(payload_bytes, slack_timestamp, slack_signature):
+        logger.warning("Slack slash-command signature verification failed")
+        return jsonify({'error': 'Invalid signature'}), 401
+
+    channel = request.form.get("channel_id", "")
+    response_url = request.form.get("response_url", "")
+    command = (request.form.get("command", "") or "").strip().lower()
+    text = (request.form.get("text", "") or "").strip().lower()
+
+    if config.SLACK_TRIGGER_CHANNEL_ID and channel != config.SLACK_TRIGGER_CHANNEL_ID:
+        return jsonify({
+            "response_type": "ephemeral",
+            "text": "This command is only enabled in the configured scrape channel."
+        })
+
+    # Support /scrape or any slash command whose text includes "scrape".
+    if "scrape" not in command and "scrape" not in text:
+        return jsonify({
+            "response_type": "ephemeral",
+            "text": "Use `/scrape` to run the ICP scrape and post a report."
+        })
+
+    if getattr(app, '_agent_running', False):
+        return jsonify({
+            "response_type": "ephemeral",
+            "text": "A scrape is already running. Please wait for it to complete."
+        })
+
+    def run_agent_from_slash_command():
+        try:
+            app._agent_running = True
+            from agents.funding_agent import FundingAgent
+            agent = FundingAgent()
+            result = agent.run()
+            app._agent_last_result = result
+            _post_to_slack_response_url(
+                response_url,
+                _format_slack_trigger_report(result),
+                in_channel=True
+            )
+        except Exception as exc:
+            logger.exception(f"Slash-command scrape failed: {exc}")
+            app._agent_last_result = {'error': str(exc)}
+            _post_to_slack_response_url(
+                response_url,
+                f"Scrape failed: `{exc}`",
+                in_channel=False
+            )
+        finally:
+            app._agent_running = False
+
+    threading.Thread(target=run_agent_from_slash_command, daemon=True).start()
+    return jsonify({
+        "response_type": "ephemeral",
+        "text": "Starting scrape now. I will post the report here when complete."
+    })
+
+
+@app.route('/webhooks/slack/events', methods=['POST'])
+def slack_events_webhook():
+    """Handle Slack app mentions and trigger scrape on demand."""
+    if not config.SLACK_SIGNING_SECRET:
+        return jsonify({'error': 'SLACK_SIGNING_SECRET not configured'}), 503
+
+    payload_bytes = request.get_data()
+    slack_signature = request.headers.get("X-Slack-Signature", "")
+    slack_timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    if not _verify_slack_signature(payload_bytes, slack_timestamp, slack_signature):
+        logger.warning("Slack webhook signature verification failed")
+        return jsonify({'error': 'Invalid signature'}), 401
+
+    payload = request.get_json(silent=True) or {}
+
+    # Slack URL verification handshake.
+    if payload.get("type") == "url_verification":
+        return jsonify({"challenge": payload.get("challenge")})
+
+    if payload.get("type") != "event_callback":
+        return jsonify({'ok': True})
+
+    event_id = payload.get("event_id", "")
+    if _is_duplicate_slack_event(event_id):
+        return jsonify({'ok': True})
+
+    event = payload.get("event", {})
+    if event.get("type") != "app_mention":
+        return jsonify({'ok': True})
+    if event.get("bot_id"):
+        return jsonify({'ok': True})
+
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if not channel:
+        return jsonify({'ok': True})
+
+    text = (event.get("text") or "").lower()
+    trigger_words = ("scrape", "run scrape", "refresh", "run report")
+    if not any(word in text for word in trigger_words):
+        _post_slack_message(
+            channel,
+            "Use `@codex scrape` (or `@claude scrape`) to run the ICP scrape and post a report.",
+            thread_ts=thread_ts
+        )
+        return jsonify({'ok': True})
+
+    if config.SLACK_TRIGGER_CHANNEL_ID and channel != config.SLACK_TRIGGER_CHANNEL_ID:
+        _post_slack_message(
+            channel,
+            "This command is only enabled in the configured scrape channel.",
+            thread_ts=thread_ts
+        )
+        return jsonify({'ok': True})
+
+    if getattr(app, '_agent_running', False):
+        _post_slack_message(
+            channel,
+            "A scrape is already running. I will post results when it completes.",
+            thread_ts=thread_ts
+        )
+        return jsonify({'ok': True})
+
+    _post_slack_message(
+        channel,
+        "Starting scrape now. I will post the report here when complete.",
+        thread_ts=thread_ts
+    )
+
+    def run_agent_from_slack():
+        try:
+            app._agent_running = True
+            from agents.funding_agent import FundingAgent
+            agent = FundingAgent()
+            result = agent.run()
+            app._agent_last_result = result
+            _post_slack_message(
+                channel,
+                _format_slack_trigger_report(result),
+                thread_ts=thread_ts
+            )
+        except Exception as exc:
+            logger.exception(f"Slack-triggered scrape failed: {exc}")
+            app._agent_last_result = {'error': str(exc)}
+            _post_slack_message(
+                channel,
+                f"Scrape failed: `{exc}`",
+                thread_ts=thread_ts
+            )
+        finally:
+            app._agent_running = False
+
+    threading.Thread(target=run_agent_from_slack, daemon=True).start()
+    return jsonify({'ok': True})
+
 @app.route('/webhooks/calcom', methods=['POST'])
 def calcom_webhook():
     """Handle Cal.com webhook events (BOOKING_CREATED)."""
@@ -636,6 +924,55 @@ def api_a16z_sync():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============== FUNDING AGENT ==============
+
+@app.route('/api/agent/scrape', methods=['POST'])
+def api_agent_scrape():
+    """API: Run the funding news agent to scrape and import leads."""
+    import threading
+
+    data = request.json or {}
+    sources = data.get('sources', None)
+    if sources == 'all':
+        sources = ["techcrunch", "google_news", "crunchbase", "yc_directory", "producthunt"]
+
+    # Prevent concurrent runs
+    if getattr(app, '_agent_running', False):
+        return jsonify({'error': 'Agent is already running'}), 409
+
+    def run_agent():
+        try:
+            app._agent_running = True
+            from agents.funding_agent import FundingAgent
+            agent = FundingAgent(sources=sources)
+            result = agent.run()
+            app._agent_last_result = result
+        except Exception as e:
+            app._agent_last_result = {'error': str(e)}
+        finally:
+            app._agent_running = False
+
+    thread = threading.Thread(target=run_agent, daemon=True)
+    thread.start()
+
+    return jsonify({
+        'success': True,
+        'message': 'Funding agent started. Check /api/agent/status for results.'
+    })
+
+
+@app.route('/api/agent/status', methods=['GET'])
+def api_agent_status():
+    """API: Check funding agent status and last results."""
+    running = getattr(app, '_agent_running', False)
+    last_result = getattr(app, '_agent_last_result', None)
+
+    return jsonify({
+        'running': running,
+        'last_result': last_result,
+    })
 
 
 # ============== TEMPLATE FILTERS ==============

@@ -67,7 +67,7 @@ GOOGLE_SHEET_ID=your_sheet_id_here
 # Run once
 python main.py
 
-# Run as daemon (daily at 8am)
+# Run as daemon (daily at 10:30am IST)
 python main.py --daemon
 ```
 
@@ -77,7 +77,21 @@ python main.py --daemon
 ./setup_cron.sh
 ```
 
-This will set up either a cron job or launchd task to run daily at 8am.
+This will set up either a cron job or launchd task to run daily at 10:30am IST.
+
+### Run While Laptop Is Off (Cloud Scheduler)
+
+For fully automatic runs (no laptop required), deploy the cron service in
+`render.yaml`:
+
+- Service: `icp-scraper-daily`
+- Schedule: `0 5 * * *` (UTC) = **10:30 AM IST daily**
+- Command: `bash start_scraper.sh`
+
+Set these environment variables for the cron service in Render Dashboard:
+
+- `SLACK_WEBHOOK_URL` (required for Slack messages)
+- Any other keys your scrapers need
 
 ## Data Sources
 
@@ -129,7 +143,41 @@ AI_KEYWORDS=artificial intelligence,machine learning,AI,ML,deep learning,LLM
 
 # Optional: Slack notifications
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx
+
+# Optional: Slack @mention trigger (web app webhook)
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_SIGNING_SECRET=...
+SLACK_TRIGGER_CHANNEL_ID=C0123456789
 ```
+
+## Trigger Scrape From Slack (No Enterprise Needed)
+
+If mention-based bot permissions are restricted in your workspace, use a slash
+command instead (recommended fallback):
+
+- Command: `/scrape`
+- Endpoint: `https://<your-crm-domain>/webhooks/slack/command`
+
+What it does:
+
+- Runs the ICP scrape on demand
+- Posts the final report in the same channel automatically
+
+Setup:
+
+1. Create a Slack app and install it to your workspace.
+2. Enable **Slash Commands** and create `/scrape`.
+3. Set Request URL to: `https://<your-crm-domain>/webhooks/slack/command`
+4. Set these env vars on the CRM web service:
+   - `SLACK_SIGNING_SECRET`
+   - `SLACK_TRIGGER_CHANNEL_ID` (optional channel lock)
+
+Optional mention trigger (if your workspace allows it):
+
+- Mention text: `@codex scrape` or `@claude scrape`
+- Endpoint: `https://<your-crm-domain>/webhooks/slack/events`
+- Scopes: `app_mentions:read`, `chat:write`
+- Env var: `SLACK_BOT_TOKEN`
 
 ## Project Structure
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Setup script for ICP Scraper cron job on macOS
 #
-# This script sets up a daily cron job to run the ICP scraper at 8am.
+# This script sets up a daily cron job to run the scraper at 10:30 AM IST.
 # You can also use launchd (macOS native) for more robust scheduling.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,23 +38,30 @@ read -p "Enter choice (1 or 2): " choice
 
 if [ "$choice" = "1" ]; then
     # Setup cron job
-    CRON_LINE="0 8 * * * cd $SCRIPT_DIR && $PYTHON_PATH main.py >> $LOG_FILE 2>&1"
+    CRON_TZ_LINE="CRON_TZ=Asia/Kolkata"
+    CRON_LINE_SCRAPER="30 10 * * * /bin/bash \"$SCRIPT_DIR/start_scraper.sh\" >> \"$SCRIPT_DIR/agent.log\" 2>&1"
 
     # Check if cron job already exists
-    if crontab -l 2>/dev/null | grep -q "icp-scraper"; then
-        echo "Cron job already exists. Updating..."
-        crontab -l | grep -v "icp-scraper" | crontab -
+    if crontab -l 2>/dev/null | grep -q "start_scraper.sh"; then
+        echo "Existing scraper cron job found. Updating..."
+        crontab -l 2>/dev/null | grep -v "start_scraper.sh" | grep -v "^CRON_TZ=Asia/Kolkata$" | crontab -
     fi
 
-    # Add new cron job
-    (crontab -l 2>/dev/null; echo "# icp-scraper daily run"; echo "$CRON_LINE") | crontab -
+    # Add cron job
+    (
+        crontab -l 2>/dev/null | grep -v "^CRON_TZ=Asia/Kolkata$"
+        echo "$CRON_TZ_LINE"
+        echo "# icp-scraper daily run (10:30 AM IST)"
+        echo "$CRON_LINE_SCRAPER"
+    ) | crontab -
 
     echo ""
-    echo "Cron job installed! The scraper will run daily at 8:00 AM."
-    echo "Logs will be written to: $LOG_FILE"
+    echo "Cron job installed!"
+    echo "  - Scraper + Slack notification: daily at 10:30 AM IST"
+    echo "Logs: $SCRIPT_DIR/agent.log"
     echo ""
     echo "To view current cron jobs: crontab -l"
-    echo "To remove: crontab -e (and delete the icp-scraper lines)"
+    echo "To remove: crontab -e (and delete the start_scraper.sh line)"
 
 elif [ "$choice" = "2" ]; then
     # Setup launchd
@@ -67,19 +74,19 @@ elif [ "$choice" = "2" ]; then
 <dict>
     <key>Label</key>
     <string>com.icp-scraper</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$PYTHON_PATH</string>
-        <string>$SCRIPT_DIR/main.py</string>
-    </array>
+        <key>ProgramArguments</key>
+        <array>
+            <string>/bin/bash</string>
+            <string>$SCRIPT_DIR/start_scraper.sh</string>
+        </array>
     <key>WorkingDirectory</key>
     <string>$SCRIPT_DIR</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
-        <integer>8</integer>
+        <integer>10</integer>
         <key>Minute</key>
-        <integer>0</integer>
+        <integer>30</integer>
     </dict>
     <key>StandardOutPath</key>
     <string>$SCRIPT_DIR/launchd.log</string>
@@ -96,7 +103,7 @@ EOF
     launchctl load "$PLIST_FILE"
 
     echo ""
-    echo "launchd job installed! The scraper will run daily at 8:00 AM."
+    echo "launchd job installed! The scraper will run daily at 10:30 AM (system timezone)."
     echo "Plist file: $PLIST_FILE"
     echo "Logs: $SCRIPT_DIR/launchd.log"
     echo ""
@@ -111,6 +118,7 @@ fi
 echo ""
 echo "Setup complete!"
 echo ""
-echo "To test the scraper manually:"
+echo "To test manually:"
 echo "  cd $SCRIPT_DIR"
-echo "  python3 main.py"
+echo "  python3 main.py           # Scrape to Google Sheets"
+echo "  python3 run_agent.py      # Scrape directly to CRM"

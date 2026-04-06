@@ -7,3 +7,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.7
+
+  - type: cron
+    name: icp-scraper-daily
+    env: python
+    schedule: 0 5 * * *
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start_scraper.sh
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.7
