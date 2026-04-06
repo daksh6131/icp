@@ -15,12 +15,12 @@ if __name__ == '__main__':
     print("\n" + "="*50)
     print("  ICP CRM - Lead Management System")
     print("="*50)
-    print("\n  Open in browser: http://localhost:5001")
+    print("\n  Open in browser: http://localhost:8080")
     print("\n  Press Ctrl+C to stop the server")
     print("="*50 + "\n")
 
     app.run(
         host='0.0.0.0',  # Allow connections from any IP
-        port=5001,
+        port=8080,
         debug=True
     )

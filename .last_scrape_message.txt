@@ -1,0 +1,23 @@
+# ICP Lead Scraper — Daily Update
+*Apr 06, 2026 11:58 AM*
+
+**Database Stats**
+- Total leads: **5,116**
+- New today: **3**
+- Avg ICP Score: **25.5**
+
+---
+
+## Latest Leads
+
+| Company | Funding | Stage | ICP | Source |
+|---------|---------|-------|-----|--------|
+| Legora | $550M | — | 50 | Google News |
+| Wonderful | $2B | Series B | 50 | Google News |
+| Whoop | $10B | — | 40 | TechCrunch |
+| Lawhive | $60M | — | 60 | Google News |
+| Matia | $21M | Series A | 58 | Google News |
+
+---
+
+> Portal: http://localhost:8080

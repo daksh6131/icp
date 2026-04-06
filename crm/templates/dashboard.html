@@ -3,9 +3,17 @@
 {% block title %}Dashboard - ICP CRM{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1 class="page-title">Dashboard</h1>
-    <p class="page-subtitle">Overview of your lead pipeline</p>
+<div class="page-header" style="display: flex; align-items: center; justify-content: space-between;">
+    <div>
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Overview of your lead pipeline</p>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+        <div id="agent-status" style="font-size: 12px; color: var(--text-tertiary); display: none;"></div>
+        <button id="scrape-btn" onclick="runFundingAgent()" class="btn btn-primary" style="white-space: nowrap;">
+            <i class="fas fa-satellite-dish" style="margin-right: 6px;"></i>Scrape Funding News
+        </button>
+    </div>
 </div>
 
 <!-- Stats -->
@@ -194,4 +202,74 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function runFundingAgent() {
+    const btn = document.getElementById('scrape-btn');
+    const status = document.getElementById('agent-status');
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right: 6px;"></i>Scraping...';
+    status.style.display = 'block';
+    status.textContent = 'Agent is running...';
+
+    try {
+        const res = await fetch('/api/agent/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetBtn();
+            return;
+        }
+
+        // Poll for completion
+        pollAgentStatus();
+    } catch (e) {
+        showToast('Failed to start agent', 'error');
+        resetBtn();
+    }
+}
+
+function pollAgentStatus() {
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch('/api/agent/status');
+            const data = await res.json();
+
+            if (!data.running) {
+                clearInterval(interval);
+                const result = data.last_result;
+
+                if (result && result.error) {
+                    showToast('Agent error: ' + result.error, 'error');
+                } else if (result) {
+                    showToast(`Imported ${result.imported} new leads (${result.skipped} duplicates skipped)`);
+                    if (result.imported > 0) {
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                }
+                resetBtn();
+            }
+        } catch (e) {
+            clearInterval(interval);
+            resetBtn();
+        }
+    }, 3000);
+}
+
+function resetBtn() {
+    const btn = document.getElementById('scrape-btn');
+    const status = document.getElementById('agent-status');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-satellite-dish" style="margin-right: 6px;"></i>Scrape Funding News';
+    status.style.display = 'none';
+}
+</script>
 {% endblock %}

@@ -278,36 +278,36 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_pre_tracker ON leads(stage_pre, icp_score DESC) WHERE stage_post IS NULL OR stage_post = ''")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_leads_post_tracker ON leads(stage_post, icp_score DESC) WHERE stage_post IS NOT NULL AND stage_post != ''")
 
-    # Clear old pipeline stages and insert new dual-tracker stages
-    cursor.execute("DELETE FROM pipeline_stages")
+    # Initialize pipeline stages only if table is empty (not on every restart)
+    stage_count = cursor.execute("SELECT COUNT(*) FROM pipeline_stages").fetchone()[0]
+    if stage_count == 0:
+        # Pre-conversation stages
+        pre_stages = [
+            ('research', 0, '#6B7280', 'pre'),      # Gray
+            ('queued', 1, '#3B82F6', 'pre'),        # Blue
+            ('dm_sent', 2, '#8B5CF6', 'pre'),       # Purple
+            ('follow_up_1', 3, '#F59E0B', 'pre'),   # Amber
+            ('follow_up_2', 4, '#EC4899', 'pre'),   # Pink
+            ('no_response', 5, '#EF4444', 'pre'),   # Red
+        ]
 
-    # Pre-conversation stages
-    pre_stages = [
-        ('research', 0, '#6B7280', 'pre'),      # Gray
-        ('queued', 1, '#3B82F6', 'pre'),        # Blue
-        ('dm_sent', 2, '#8B5CF6', 'pre'),       # Purple
-        ('follow_up_1', 3, '#F59E0B', 'pre'),   # Amber
-        ('follow_up_2', 4, '#EC4899', 'pre'),   # Pink
-        ('no_response', 5, '#EF4444', 'pre'),   # Red
-    ]
+        # Post-conversation stages
+        post_stages = [
+            ('replied', 0, '#10B981', 'post'),           # Green
+            ('discovery_booked', 1, '#3B82F6', 'post'),  # Blue
+            ('discovery_done', 2, '#8B5CF6', 'post'),    # Purple
+            ('audit_scheduled', 3, '#F59E0B', 'post'),   # Amber
+            ('proposal_sent', 4, '#EC4899', 'post'),     # Pink
+            ('negotiation', 5, '#F97316', 'post'),       # Orange
+            ('paid', 6, '#22C55E', 'post'),              # Bright Green
+            ('rejected', 7, '#EF4444', 'post'),          # Red
+        ]
 
-    # Post-conversation stages
-    post_stages = [
-        ('replied', 0, '#10B981', 'post'),           # Green
-        ('discovery_booked', 1, '#3B82F6', 'post'),  # Blue
-        ('discovery_done', 2, '#8B5CF6', 'post'),    # Purple
-        ('audit_scheduled', 3, '#F59E0B', 'post'),   # Amber
-        ('proposal_sent', 4, '#EC4899', 'post'),     # Pink
-        ('negotiation', 5, '#F97316', 'post'),       # Orange
-        ('paid', 6, '#22C55E', 'post'),              # Bright Green
-        ('rejected', 7, '#EF4444', 'post'),          # Red
-    ]
-
-    for name, order, color, tracker_type in pre_stages + post_stages:
-        cursor.execute("""
-            INSERT INTO pipeline_stages (name, order_index, color, tracker_type)
-            VALUES (?, ?, ?, ?)
-        """, (name, order, color, tracker_type))
+        for name, order, color, tracker_type in pre_stages + post_stages:
+            cursor.execute("""
+                INSERT INTO pipeline_stages (name, order_index, color, tracker_type)
+                VALUES (?, ?, ?, ?)
+            """, (name, order, color, tracker_type))
 
     # Insert default scraping sources
     default_sources = [
@@ -323,7 +323,7 @@ def init_db():
             WHERE NOT EXISTS (SELECT 1 FROM scraping_sources WHERE name = ?)
         """, (name, stype, url, desc, name))
 
-    # Migrate existing leads: map old stage to stage_pre
+    # One-time migration: map old stage to stage_pre (only for unmigrated leads)
     cursor.execute("""
         UPDATE leads
         SET stage_pre = CASE
@@ -334,7 +334,7 @@ def init_db():
             WHEN stage = 'lost' THEN 'no_response'
             ELSE 'research'
         END
-        WHERE stage_pre IS NULL OR stage_pre = 'research'
+        WHERE stage_pre IS NULL
     """)
 
     conn.commit()
@@ -477,7 +477,16 @@ class Lead:
 
     @staticmethod
     def create(data: dict) -> int:
-        """Create a new lead."""
+        """Create a new lead. Auto-scores with ICP filter if no score provided."""
+        # Auto-score if no icp_score provided
+        if not data.get('icp_score'):
+            try:
+                from processors.icp_filter import ICPFilter
+                icp = ICPFilter()
+                icp.tag_lead(data)
+            except Exception:
+                pass  # Don't block creation if scoring fails
+
         conn = get_db()
         cursor = conn.execute("""
             INSERT INTO leads (
