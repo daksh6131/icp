@@ -1,7 +1,7 @@
 #!/bin/bash
 # Setup script for ICP Scraper cron job on macOS
 #
-# This script sets up a daily cron job to run the scraper at 10:30 AM IST.
+# This script sets up a daily cron job to run the scraper at 10:00 AM IST.
 # You can also use launchd (macOS native) for more robust scheduling.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,7 +39,7 @@ read -p "Enter choice (1 or 2): " choice
 if [ "$choice" = "1" ]; then
     # Setup cron job
     CRON_TZ_LINE="CRON_TZ=Asia/Kolkata"
-    CRON_LINE_SCRAPER="30 10 * * * /bin/bash \"$SCRIPT_DIR/start_scraper.sh\" >> \"$SCRIPT_DIR/agent.log\" 2>&1"
+    CRON_LINE_SCRAPER="0 10 * * * /bin/bash \"$SCRIPT_DIR/start_scraper.sh\" >> \"$SCRIPT_DIR/agent.log\" 2>&1"
 
     # Check if cron job already exists
     if crontab -l 2>/dev/null | grep -q "start_scraper.sh"; then
@@ -51,13 +51,13 @@ if [ "$choice" = "1" ]; then
     (
         crontab -l 2>/dev/null | grep -v "^CRON_TZ=Asia/Kolkata$"
         echo "$CRON_TZ_LINE"
-        echo "# icp-scraper daily run (10:30 AM IST)"
+        echo "# icp-scraper daily run (10:00 AM IST)"
         echo "$CRON_LINE_SCRAPER"
     ) | crontab -
 
     echo ""
     echo "Cron job installed!"
-    echo "  - Scraper + Slack notification: daily at 10:30 AM IST"
+    echo "  - Scraper + Slack notification: daily at 10:00 AM IST"
     echo "Logs: $SCRIPT_DIR/agent.log"
     echo ""
     echo "To view current cron jobs: crontab -l"
@@ -86,7 +86,7 @@ elif [ "$choice" = "2" ]; then
         <key>Hour</key>
         <integer>10</integer>
         <key>Minute</key>
-        <integer>30</integer>
+        <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
     <string>$SCRIPT_DIR/launchd.log</string>
@@ -103,7 +103,7 @@ EOF
     launchctl load "$PLIST_FILE"
 
     echo ""
-    echo "launchd job installed! The scraper will run daily at 10:30 AM (system timezone)."
+    echo "launchd job installed! The scraper will run daily at 10:00 AM (system timezone)."
     echo "Plist file: $PLIST_FILE"
     echo "Logs: $SCRIPT_DIR/launchd.log"
     echo ""

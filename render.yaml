@@ -3,7 +3,7 @@ services:
     name: icp-crm
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn crm.app:app
+    startCommand: gunicorn crm.app:app --workers 2 --threads 4 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.7
@@ -11,7 +11,7 @@ services:
   - type: cron
     name: icp-scraper-daily
     env: python
-    schedule: 0 5 * * *
+    schedule: 30 4 * * *
     buildCommand: pip install -r requirements.txt
     startCommand: bash start_scraper.sh
     envVars:

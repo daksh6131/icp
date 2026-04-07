@@ -67,7 +67,7 @@ GOOGLE_SHEET_ID=your_sheet_id_here
 # Run once
 python main.py
 
-# Run as daemon (daily at 10:30am IST)
+# Run as daemon (daily at 10:00am IST)
 python main.py --daemon
 ```
 
@@ -77,7 +77,7 @@ python main.py --daemon
 ./setup_cron.sh
 ```
 
-This will set up either a cron job or launchd task to run daily at 10:30am IST.
+This will set up either a cron job or launchd task to run daily at 10:00am IST.
 
 ### Run While Laptop Is Off (Cloud Scheduler)
 
@@ -85,7 +85,7 @@ For fully automatic runs (no laptop required), deploy the cron service in
 `render.yaml`:
 
 - Service: `icp-scraper-daily`
-- Schedule: `0 5 * * *` (UTC) = **10:30 AM IST daily**
+- Schedule: `30 4 * * *` (UTC) = **10:00 AM IST daily**
 - Command: `bash start_scraper.sh`
 
 Set these environment variables for the cron service in Render Dashboard:
